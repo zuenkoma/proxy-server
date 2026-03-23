@@ -76,13 +76,16 @@ function matchPort(port: number, pattern: string | number): boolean {
 }
 
 export function matchRule(rules: Rule[], address: string, port: number): Rule {
-    for (const rule of rules) {
-        if (matchAddress(address, rule.address) && matchPort(port, rule.port)) {
-            return rule;
-        }
-    }
-    return {
+    let matchedRule: Rule = {
         type: 'allow',
         address, port
     };
+
+    for (const rule of rules) {
+        if (matchAddress(address, rule.address) && matchPort(port, rule.port)) {
+            matchedRule = rule;
+        }
+    }
+
+    return matchedRule;
 }

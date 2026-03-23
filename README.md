@@ -96,7 +96,7 @@ npm start -- --port 8080 --http --user user1:pass1 --user user2:pass2
 | `socks5` | boolean | Enable plain SOCKS5 proxy |
 | `socks5-tls` | boolean | Enable SOCKS5 over TLS |
 | `users` | array | List of allowed users (empty = no authentication) |
-| `rules` | array | Traffic routing rules (evaluated in order) |
+| `rules` | array | Traffic routing rules (evaluated in order, last matching rule wins) |
 
 ### Rule Types
 
@@ -159,7 +159,7 @@ Route through an upstream proxy.
 
 ### Default Behavior
 
-If no rule matches a connection, it is **allowed** by default.
+If no rule matches a connection, it is **allowed** by default. If multiple rules match, the **last matching rule** in the configuration file determines the action.
 
 ## Architecture
 
