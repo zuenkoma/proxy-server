@@ -1,6 +1,6 @@
 {
   "name": "proxy-server",
-  "description": "",
+  "description": "A multi-protocol proxy server with SOCKS5, HTTP, and TLS support, featuring rule-based routing and upstream proxy chaining",
   "version": "0.0.0",
   "type": "module",
   "main": "./dist/index.js",
