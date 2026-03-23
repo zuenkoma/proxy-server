@@ -1,0 +1,42 @@
+{
+    "host": "0.0.0.0",
+    "port": 1984,
+
+    "tls-key": "privkey.pem",
+    "tls-cert": "fullchain.pem",
+
+    "http": true,
+    "http-tls": true,
+    "socks5": true,
+    "socks5-tls": true,
+
+    "users": [
+        {
+            "username": "user1",
+            "password": "pass1"
+        },
+        {
+            "username": "user2",
+            "password": "pass2"
+        }
+    ],
+
+    "rules": [
+        {
+            "type": "allow",
+            "address": "8.8.8.8",
+            "port": 53
+        },
+        {
+            "type": "proxy",
+            "address": "12.34.56.78/24",
+            "port": "1-65535",
+            "proxy": {
+                "proto": "socks5",
+                "host": "127.0.0.1",
+                "port": 1080,
+                "tls": true
+            }
+        }
+    ]
+}
