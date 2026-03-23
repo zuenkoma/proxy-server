@@ -1,4 +1,5 @@
-import { createServer } from 'node:net';
+import { createServer, type Socket } from 'node:net';
+import process from 'node:process';
 import { readConfig } from './config.ts';
 import handlerHttp from './handlers/http.ts';
 import handlerSocks5 from './handlers/socks5.ts';
@@ -7,7 +8,11 @@ import { readBytes } from './utils.ts';
 
 const config = await readConfig();
 
+const connections = new Set<Socket>();
 const server = createServer(async socket => {
+    connections.add(socket);
+    socket.once('close', () => connections.delete(socket));
+
     const firstByte = (await readBytes(socket, 1)).readUint8();
     socket.unshift(new Uint8Array([firstByte]));
 
@@ -34,4 +39,9 @@ const server = createServer(async socket => {
 });
 server.listen(config.port, config.host);
 
-process.on('SIGINT', () => server.close());
+function shutdown() {
+    for (const socket of connections) socket.end();
+    server.close();
+}
+process.on('SIGINT', shutdown);
+process.on('SIGINT', shutdown);

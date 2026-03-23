@@ -21,7 +21,6 @@ A high-performance proxy server supporting SOCKS5, HTTP and TLS protocols with f
 git clone https://github.com/zuenkoma/proxy-server
 cd proxy-server
 npm install
-npm run build
 ```
 
 ## Usage
