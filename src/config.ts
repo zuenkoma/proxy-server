@@ -82,6 +82,21 @@ function checkProxy(proxy: any): proxy is Proxy {
         return false;
     }
 
+    if (proxy.auth !== undefined) {
+        if (typeof proxy.auth !== 'object' || proxy.auth === null) {
+            console.error('Proxy auth must be an object.');
+            return false;
+        }
+        if (typeof proxy.auth.username !== 'string' || proxy.auth.username.length === 0) {
+            console.error('Proxy auth username must be a non-empty string.');
+            return false;
+        }
+        if (typeof proxy.auth.password !== 'string' || proxy.auth.password.length === 0) {
+            console.error('Proxy auth password must be a non-empty string.');
+            return false;
+        }
+    }
+
     return true;
 }
 

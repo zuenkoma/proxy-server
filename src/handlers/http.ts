@@ -10,6 +10,7 @@ interface HttpHeader {
     host: string;
     port: number;
     headers: Record<string, string>;
+    
 }
 
 function readHttpHeader(socket: Socket): Promise<HttpHeader> {

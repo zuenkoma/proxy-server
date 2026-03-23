@@ -19,7 +19,7 @@ function connectSocket(proxy: Proxy): Promise<net.Socket> {
 
 export default async function connectProxy(proxy: Proxy, host: string, port: number) {
     const socket = await connectSocket(proxy);
-    if (proxy.proto === 'socks5') await connectSocks5Proxy(socket, host, port);
-    if (proxy.proto === 'http') await connectHttpProxy(socket, host, port);
+    if (proxy.proto === 'socks5') await connectSocks5Proxy(socket, host, port, proxy.auth);
+    if (proxy.proto === 'http') await connectHttpProxy(socket, host, port, proxy.auth);
     return socket;
 }

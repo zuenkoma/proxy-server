@@ -31,11 +31,17 @@
             "type": "proxy",
             "address": "12.34.56.78/24",
             "port": "1-65535",
+
             "proxy": {
                 "proto": "socks5",
                 "host": "127.0.0.1",
                 "port": 1080,
-                "tls": true
+                "tls": true,
+
+                "auth": {
+                    "username": "proxyuser",
+                    "password": "proxypass"
+                }
             }
         }
     ]

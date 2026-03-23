@@ -6,6 +6,7 @@ export interface Proxy {
     host: string;
     port: number;
     tls?: boolean; // default: false
+    auth?: User;
 }
 
 export interface BaseRule {
