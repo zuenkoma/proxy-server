@@ -10,7 +10,7 @@ interface HttpHeader {
     host: string;
     port: number;
     headers: Record<string, string>;
-    
+
 }
 
 function readHttpHeader(socket: Socket): Promise<HttpHeader> {
@@ -89,92 +89,87 @@ function readHttpHeader(socket: Socket): Promise<HttpHeader> {
 }
 
 export default async function handlerHttp(socket: Socket, config: Config) {
-    try {
-        const { host, port, headers } = await readHttpHeader(socket);
+    const { host, port, headers } = await readHttpHeader(socket);
 
-        if (config.users.length) {
-            const authHeader = headers['proxy-authorization'];
-            if (!authHeader) {
-                socket.write('HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm="Proxy"\r\n\r\n');
-                socket.end();
-                return;
-            }
-
-            const [scheme, credentials] = authHeader.split(' ');
-            if (scheme.toLowerCase() !== 'basic') {
-                socket.write('HTTP/1.1 400 Bad Request\r\n\r\n');
-                socket.end();
-                return;
-            }
-
-            const decoded = atob(credentials);
-            const [username, password] = decoded.split(':');
-
-            if (!hasAccess(config.users, username, password)) {
-                socket.write('HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm="Proxy"\r\n\r\n');
-                socket.end();
-                return;
-            }
+    if (config.users.length) {
+        const authHeader = headers['proxy-authorization'];
+        if (!authHeader) {
+            socket.write('HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm="Proxy"\r\n\r\n');
+            socket.end();
+            return;
         }
 
-        if (isIPv4(host)) {
-            if (isPrivateIPv4(host)) {
-                socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
-                socket.end();
-                return;
-            }
-        }
-        else if (isIPv6(host)) {
-            if (isPrivateIPv6(host)) {
-                socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
-                socket.end();
-                return;
-            }
-        }
-        else {
-            if (isPrivateDomain(host)) {
-                socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
-                socket.end();
-                return;
-            }
+        const [scheme, credentials] = authHeader.split(' ');
+        if (scheme.toLowerCase() !== 'basic') {
+            socket.write('HTTP/1.1 400 Bad Request\r\n\r\n');
+            socket.end();
+            return;
         }
 
-        const rule = matchRule(config.rules, host, port);
+        const decoded = atob(credentials);
+        const [username, password] = decoded.split(':');
 
-        let targetSocket: Socket;
-        switch (rule.type) {
-            case 'allow':
-                targetSocket = createConnection(port, host);
-                break;
-
-            case 'deny':
-                socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
-                socket.end();
-                return;
-
-            case 'proxy':
-                try {
-                    targetSocket = await connectProxy(rule.proxy, host, port);
-                }
-                catch {
-                    socket.write('HTTP/1.1 502 Bad Gateway\r\n\r\n');
-                    socket.end();
-                    return;
-                }
-                break;
+        if (!hasAccess(config.users, username, password)) {
+            socket.write('HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm="Proxy"\r\n\r\n');
+            socket.end();
+            return;
         }
-
-        socket.write('HTTP/1.1 200 Connection established\r\n\r\n');
-
-        targetSocket.once('error', () => socket.destroy());
-        targetSocket.once('end', () => socket.end());
-        socket.once('error', () => targetSocket.destroy());
-        socket.once('end', () => targetSocket.end());
-
-        socket.pipe(targetSocket);
-        targetSocket.pipe(socket);
     }
-    catch {
-        socket.destroy();
+
+    if (isIPv4(host)) {
+        if (isPrivateIPv4(host)) {
+            socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
+            socket.end();
+            return;
+        }
     }
+    else if (isIPv6(host)) {
+        if (isPrivateIPv6(host)) {
+            socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
+            socket.end();
+            return;
+        }
+    }
+    else {
+        if (isPrivateDomain(host)) {
+            socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
+            socket.end();
+            return;
+        }
+    }
+
+    const rule = matchRule(config.rules, host, port);
+
+    let targetSocket: Socket;
+    switch (rule.type) {
+        case 'allow':
+            targetSocket = createConnection(port, host);
+            break;
+
+        case 'deny':
+            socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
+            socket.end();
+            return;
+
+        case 'proxy':
+            try {
+                targetSocket = await connectProxy(rule.proxy, host, port);
+            }
+            catch {
+                socket.write('HTTP/1.1 502 Bad Gateway\r\n\r\n');
+                socket.end();
+                return;
+            }
+            break;
+    }
+
+    socket.write('HTTP/1.1 200 Connection established\r\n\r\n');
+
+    targetSocket.once('error', () => socket.destroy());
+    targetSocket.once('end', () => socket.end());
+    socket.once('error', () => targetSocket.destroy());
+    socket.once('end', () => targetSocket.end());
+
+    socket.pipe(targetSocket);
+    targetSocket.pipe(socket);
 }

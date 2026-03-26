@@ -12,29 +12,35 @@ const connections = new Set<Socket>();
 const server = createServer(async socket => {
     connections.add(socket);
     socket.once('close', () => connections.delete(socket));
+    socket.once('error', () => { });
 
-    const firstByte = (await readBytes(socket, 1)).readUint8();
-    socket.unshift(new Uint8Array([firstByte]));
+    try {
+        const firstByte = (await readBytes(socket, 1)).readUint8();
+        socket.unshift(new Uint8Array([firstByte]));
 
-    switch (firstByte) {
-        case 0x05:
-            if (config.socks5) handlerSocks5(socket, config);
-            else socket.destroy();
-            break;
+        switch (firstByte) {
+            case 0x05:
+                if (config.socks5) handlerSocks5(socket, config);
+                else socket.destroy();
+                break;
 
-        case 0x43:
-            if (config.http) handlerHttp(socket, config);
-            else socket.destroy();
-            break;
+            case 0x43:
+                if (config.http) handlerHttp(socket, config);
+                else socket.destroy();
+                break;
 
-        case 0x16:
-            if (config['http-tls'] || config['socks5-tls']) handlerTls(socket, config);
-            else socket.destroy();
-            break;
+            case 0x16:
+                if (config['http-tls'] || config['socks5-tls']) handlerTls(socket, config);
+                else socket.destroy();
+                break;
 
-        default:
-            socket.destroy();
-            break;
+            default:
+                socket.destroy();
+                break;
+        }
+    }
+    catch {
+        socket.destroy();
     }
 });
 server.listen(config.port, config.host);
