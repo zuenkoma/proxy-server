@@ -1,9 +1,10 @@
 import { createConnection, isIPv4, isIPv6, type Socket } from 'net';
 import type { Config } from '../config.ts';
+import { logInfo } from '../logger.ts';
+import connectProxy from '../proxy/index.ts';
+import { matchRule } from '../rules.ts';
 import { hasAccess } from '../users.ts';
 import { isPrivateDomain, isPrivateIPv4, isPrivateIPv6 } from '../utils.ts';
-import { matchRule } from '../rules.ts';
-import connectProxy from '../proxy/index.ts';
 
 interface HttpHeader {
     method: string;
@@ -139,6 +140,7 @@ export default async function handlerHttp(socket: Socket, config: Config) {
     }
 
     const rule = matchRule(config.rules, host, port);
+    if (config.debug) logInfo(`Connect to ${host}:${port} (${rule.type})`);
 
     let targetSocket: Socket;
     switch (rule.type) {
@@ -153,7 +155,7 @@ export default async function handlerHttp(socket: Socket, config: Config) {
 
         case 'proxy':
             try {
-                targetSocket = await connectProxy(rule.proxy, host, port);
+                targetSocket = await connectProxy(rule.proxy, host, port, config.debug);
             }
             catch {
                 socket.write('HTTP/1.1 502 Bad Gateway\r\n\r\n');

@@ -1,6 +1,7 @@
 import { BinaryReader } from 'binary-rw';
 import { createConnection, type Socket } from 'net';
 import { type Config } from '../config.ts';
+import { logInfo } from '../logger.ts';
 import connectProxy from '../proxy/index.ts';
 import { matchRule } from '../rules.ts';
 import { hasAccess } from '../users.ts';
@@ -136,6 +137,7 @@ export default async function handlerSocks5(socket: Socket, config: Config) {
         }
 
         const rule = matchRule(config.rules, address, port);
+        if (config.debug) logInfo(`Connect to ${address}:${port} (${rule.type})`);
 
         switch (rule.type) {
             case 'allow': {
@@ -165,7 +167,7 @@ export default async function handlerSocks5(socket: Socket, config: Config) {
 
             case 'proxy': {
                 try {
-                    const proxySocket = await connectProxy(rule.proxy, address, port);
+                    const proxySocket = await connectProxy(rule.proxy, address, port, config.debug);
                     socket.write(createConnectReply(0x00));
 
                     proxySocket.once('error', () => socket.destroy());

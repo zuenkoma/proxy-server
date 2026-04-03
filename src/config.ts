@@ -15,6 +15,7 @@ export interface Config {
     'socks5-tls': boolean;
     users: User[];
     rules: Rule[];
+    debug: boolean;
 }
 
 function checkHost(host: string) {
@@ -241,7 +242,8 @@ export async function readConfig() {
         socks5: false,
         'socks5-tls': false,
         users: [] as User[],
-        rules: [] as Rule[]
+        rules: [] as Rule[],
+        debug: false
     };
 
     const { values: cliConfig } = parseArgs({
@@ -251,11 +253,12 @@ export async function readConfig() {
             config: { type: 'string', short: 'c' },
             'tls-key': { type: 'string' },
             'tls-cert': { type: 'string' },
-            'http': { type: 'boolean' },
+            http: { type: 'boolean' },
             'http-tls': { type: 'boolean' },
-            'socks5': { type: 'boolean' },
+            socks5: { type: 'boolean' },
             'socks5-tls': { type: 'boolean' },
-            'user': { type: 'string', multiple: true }
+            user: { type: 'string', multiple: true, short: 'u' },
+            debug: { type: 'boolean' }
         },
         strict: true
     });
@@ -328,6 +331,14 @@ export async function readConfig() {
                     }
                     break;
 
+                case 'debug':
+                    if (typeof configFile[key] !== 'boolean') {
+                        console.error(`Config key "${key}" must be a boolean.`);
+                        process.exit(1);
+                    }
+                    config.debug = configFile[key];
+                    break;
+
                 default:
                     console.error(`Unknown config key: "${key}".`);
                     process.exit(1);
@@ -373,6 +384,10 @@ export async function readConfig() {
                 password: parts[1]
             });
         }
+    }
+
+    if (cliConfig.debug !== undefined) {
+        config.debug = cliConfig.debug;
     }
 
     if (config.port === null) {
