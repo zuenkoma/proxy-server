@@ -1,17 +1,19 @@
-import { createConnection, isIPv4, isIPv6, type Socket } from 'net';
-import type { Config } from '../config.ts';
+import { isIPv4, isIPv6, type Socket } from 'net';
+import type { Config } from '../config/index.ts';
+import { connectSocket } from '../connection.ts';
+import type { DNS } from '../dns.ts';
+import type { Host } from '../host.ts';
 import { logInfo } from '../logger.ts';
 import connectProxy from '../proxy/index.ts';
-import { matchRule } from '../rules.ts';
-import { hasAccess } from '../users.ts';
-import { isPrivateDomain, isPrivateIPv4, isPrivateIPv6 } from '../utils.ts';
+import { matchRule } from '../rule.ts';
+import { hasAccess } from '../user.ts';
+import { isValidDomain, isValidPort } from '../utils.ts';
 
 interface HttpHeader {
     method: string;
-    host: string;
+    host: Host;
     port: number;
     headers: Record<string, string>;
-
 }
 
 function readHttpHeader(socket: Socket): Promise<HttpHeader> {
@@ -37,10 +39,19 @@ function readHttpHeader(socket: Socket): Promise<HttpHeader> {
                 }
 
                 const target = parts[1];
-                const [host, portStr] = target.split(':');
-                const port = parseInt(portStr, 10);
+                const [hostStr, portStr] = target.split(':');
 
-                if (isNaN(port) || port < 1 || port > 65535) {
+                let host: Host;
+                if (isIPv4(hostStr)) host = { type: 'ipv4', host: hostStr };
+                else if (isIPv6(hostStr)) host = { type: 'ipv6', host: hostStr };
+                else if (isValidDomain(hostStr)) host = { type: 'domain', host: hostStr };
+                else {
+                    reject(new Error('Invalid host'));
+                    return;
+                }
+
+                const port = +portStr;
+                if (!isValidPort(port)) {
                     reject(new Error('Invalid port'));
                     return;
                 }
@@ -89,8 +100,16 @@ function readHttpHeader(socket: Socket): Promise<HttpHeader> {
     });
 }
 
-export default async function handlerHttp(socket: Socket, config: Config) {
-    const { host, port, headers } = await readHttpHeader(socket);
+export default async function handlerHttp(socket: Socket, dns: DNS, config: Config): Promise<void> {
+    let host: Host, port: number, headers: Record<string, string>;
+    try {
+        ({ host, port, headers } = await readHttpHeader(socket));
+    }
+    catch {
+        socket.write('HTTP/1.1 400 Bad Request\r\n\r\n');
+        socket.end();
+        return;
+    }
 
     if (config.users.length) {
         const authHeader = headers['proxy-authorization'];
@@ -117,36 +136,21 @@ export default async function handlerHttp(socket: Socket, config: Config) {
         }
     }
 
-    if (isIPv4(host)) {
-        if (isPrivateIPv4(host)) {
-            socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
-            socket.end();
-            return;
-        }
-    }
-    else if (isIPv6(host)) {
-        if (isPrivateIPv6(host)) {
-            socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
-            socket.end();
-            return;
-        }
-    }
-    else {
-        if (isPrivateDomain(host)) {
-            socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
-            socket.end();
-            return;
-        }
-    }
-
-    const rule = matchRule(config.rules, host, port);
-    if (config.debug) logInfo(`Connect to ${host}:${port} (${rule.type})`);
+    const rule = await matchRule(config.rules, host, port, dns);
+    if (config.debug) logInfo(`Connect to ${host.host}:${port} (${rule.type})`);
 
     let targetSocket: Socket;
     switch (rule.type) {
         case 'allow':
-            targetSocket = createConnection(port, host);
-            break;
+            try {
+                targetSocket = await connectSocket(host, port, dns, config.debug);
+                break;
+            }
+            catch {
+                socket.write('HTTP/1.1 502 Bad Gateway\r\n\r\n');
+                socket.end();
+                return;
+            }
 
         case 'deny':
             socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
@@ -155,14 +159,14 @@ export default async function handlerHttp(socket: Socket, config: Config) {
 
         case 'proxy':
             try {
-                targetSocket = await connectProxy(rule.proxy, host, port, config.debug);
+                targetSocket = await connectProxy(rule.proxy, host.host, port, dns, config.debug);
+                break;
             }
             catch {
                 socket.write('HTTP/1.1 502 Bad Gateway\r\n\r\n');
                 socket.end();
                 return;
             }
-            break;
     }
 
     socket.write('HTTP/1.1 200 Connection established\r\n\r\n');

@@ -1,11 +1,14 @@
 import { BinaryReader } from 'binary-rw';
-import { createConnection, type Socket } from 'net';
-import { type Config } from '../config.ts';
+import { type Socket } from 'net';
+import { type Config } from '../config/index.ts';
+import { connectSocket } from '../connection.ts';
+import type { DNS } from '../dns.ts';
+import type { Host } from '../host.ts';
 import { logInfo } from '../logger.ts';
 import connectProxy from '../proxy/index.ts';
-import { matchRule } from '../rules.ts';
-import { hasAccess } from '../users.ts';
-import { isPrivateDomain, isPrivateIPv4, isPrivateIPv6, readBytes } from '../utils.ts';
+import { matchRule } from '../rule.ts';
+import { hasAccess } from '../user.ts';
+import { readBytes } from '../utils.ts';
 
 function createConnectReply(status: number) {
     return new Uint8Array([
@@ -18,7 +21,7 @@ function createConnectReply(status: number) {
     ]);
 }
 
-export default async function handlerSocks5(socket: Socket, config: Config) {
+export default async function handlerSocks5(socket: Socket, dns: DNS, config: Config) {
     // Handshake
     {
         const reader1 = await readBytes(socket, 2);
@@ -88,41 +91,32 @@ export default async function handlerSocks5(socket: Socket, config: Config) {
         if (reserved !== 0x00) throw new Error('Request: invalid reserved field');
 
         const addressType = reader1.readUint8();
-        let address: string, reader2: BinaryReader;
+        let host: Host, reader2: BinaryReader;
         switch (addressType) {
             case 0x01: { // IPv4
                 reader2 = await readBytes(socket, 6);
-                const parts: number[] = [];
-                for (let i = 0; i < 4; ++i) {
-                    parts.push(reader2.readUint8());
-                }
-                address = parts.join('.');
-                if (isPrivateIPv4(address)) {
-                    return socket.end(createConnectReply(0x02));
-                }
+                host = {
+                    type: 'ipv4',
+                    host: Array.from({ length: 4 }, () => reader2.readUint8()).join('.')
+                };
                 break;
             }
             case 0x03: { // Domain
                 const reader1 = await readBytes(socket, 1);
                 const domainLen = reader1.readUint8();
                 reader2 = await readBytes(socket, domainLen + 2);
-                address = reader2.readString(domainLen);
-                if (isPrivateDomain(address)) {
-                    return socket.end(createConnectReply(0x02));
-                }
+                host = {
+                    type: 'domain',
+                    host: reader2.readString(domainLen)
+                };
                 break;
             }
             case 0x04: { // IPv6
                 reader2 = await readBytes(socket, 18);
-                const parts = [];
-                for (let i = 0; i < 8; ++i) {
-                    const part = reader2.readUint16();
-                    parts.push(part.toString(16));
-                }
-                address = parts.join(':');
-                if (isPrivateIPv6(address)) {
-                    return socket.end(createConnectReply(0x02));
-                }
+                host = {
+                    type: 'ipv6',
+                    host: Array.from({ length: 8 }, () => reader2.readUint16().toString(16).padStart(4, '0')).join(':')
+                };
                 break;
             }
             default:
@@ -136,55 +130,46 @@ export default async function handlerSocks5(socket: Socket, config: Config) {
             return socket.end(createConnectReply(0x07));
         }
 
-        const rule = matchRule(config.rules, address, port);
-        if (config.debug) logInfo(`Connect to ${address}:${port} (${rule.type})`);
+        const rule = await matchRule(config.rules, host, port, dns);
+        if (config.debug) logInfo(`Connect to ${host.host}:${port} (${rule.type})`);
 
+        let targetSocket: Socket;
         switch (rule.type) {
             case 'allow': {
-                let sendReply = false;
-                const targetSocket = createConnection(port, address, () => {
-                    socket.write(createConnectReply(0x00));
-                    sendReply = true;
-                    socket.pipe(targetSocket);
-                    targetSocket.pipe(socket);
-                });
-
-                targetSocket.once('error', () => {
-                    if (sendReply) socket.destroy();
-                    else socket.end(createConnectReply(0x04)); // Host unreachable
-                });
-                targetSocket.once('end', () => socket.end());
-
-                socket.once('error', () => targetSocket.destroy());
-                socket.once('end', () => targetSocket.end());
-
-                break;
+                try {
+                    targetSocket = await connectSocket(host, port, dns, config.debug);
+                    break;
+                }
+                catch {
+                    socket.end(createConnectReply(0x04)); // Host unreachable
+                    return;
+                }
             }
 
             case 'deny':
                 socket.end(createConnectReply(0x02)); // Connection forbidden
-                break;
+                return;
 
             case 'proxy': {
                 try {
-                    const proxySocket = await connectProxy(rule.proxy, address, port, config.debug);
-                    socket.write(createConnectReply(0x00));
-
-                    proxySocket.once('error', () => socket.destroy());
-                    proxySocket.once('end', () => socket.end());
-
-                    socket.once('error', () => proxySocket.destroy());
-                    socket.once('end', () => proxySocket.end());
-
-                    socket.pipe(proxySocket);
-                    proxySocket.pipe(socket);
+                    targetSocket = await connectProxy(rule.proxy, host.host, port, dns, config.debug);
+                    break;
                 }
                 catch {
                     socket.end(createConnectReply(0x04)); // Host unreachable
+                    return;
                 }
-
-                break;
             }
         }
+
+        socket.write(createConnectReply(0x00));
+
+        targetSocket.once('error', () => socket.destroy());
+        targetSocket.once('end', () => socket.end());
+        socket.once('error', () => targetSocket.destroy());
+        socket.once('end', () => targetSocket.end());
+
+        socket.pipe(targetSocket);
+        targetSocket.pipe(socket);
     }
 }

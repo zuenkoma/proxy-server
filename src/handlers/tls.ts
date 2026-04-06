@@ -1,13 +1,14 @@
 import { readFile } from 'node:fs/promises';
 import type { Socket } from 'node:net';
 import { TLSSocket, createSecureContext, type SecureContext } from 'node:tls';
-import { type Config } from '../config.ts';
+import { type Config } from '../config/index.ts';
+import type { DNS } from '../dns.ts';
 import { readBytes } from '../utils.ts';
 import handlerHttp from './http.ts';
 import handlerSocks5 from './socks5.ts';
 
 const secureContexts = new WeakMap<Config, SecureContext>();
-export default async function handlerTls(socket: Socket, config: Config) {
+export default async function handlerTls(socket: Socket, dns: DNS, config: Config): Promise<void> {
     if (!secureContexts.has(config)) {
         const [key, cert] = await Promise.all([
             readFile(config['tls-key']!),
@@ -26,12 +27,12 @@ export default async function handlerTls(socket: Socket, config: Config) {
 
     switch (firstByte) {
         case 0x05:
-            if (config['socks5-tls']) handlerSocks5(tlsSocket, config);
+            if (config['socks5-tls']) await handlerSocks5(tlsSocket, dns, config);
             else tlsSocket.destroy();
             break;
 
         case 0x43:
-            if (config['http-tls']) handlerHttp(tlsSocket, config);
+            if (config['http-tls']) await handlerHttp(tlsSocket, dns, config);
             else tlsSocket.destroy();
             break;
 

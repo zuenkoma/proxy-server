@@ -10,7 +10,7 @@ A high-performance proxy server supporting SOCKS5, HTTP and TLS protocols with f
 - **Rule-Based Routing**: Define rules to allow, deny, or proxy traffic based on:
   - IP addresses (single IP, CIDR ranges)
   - Domain names (exact match or wildcard patterns like `*.example.com`)
-  - Port ranges (single ports, ranges like `80-88`, or comma-separated lists)
+  - Port ranges (single ports, ranges like `80-88`, or lists)
 - **Upstream Proxy Chaining**: Route traffic through upstream HTTP or SOCKS5 proxies with optional TLS and authentication
 - **Authentication**: Username/password authentication for client connections
 - **TLS Support**: Both client-to-proxy and proxy-to-upstream TLS encryption
@@ -63,15 +63,15 @@ npm start -- --port 8080 --http --user user1:pass1 --user user2:pass2
   "rules": [
     {
       "type": "allow",
-      "address": "8.8.8.8",
-      "port": 53
+      "hosts": ["8.8.8.8"],
+      "ports": [53]
     },
     {
       "type": "proxy",
-      "address": "12.34.56.78/24",
-      "port": "1-65535",
+      "hosts": ["12.34.56.78/24"],
+      "ports": ["1-65535"],
       "proxy": {
-        "proto": "socks5",
+        "protocol": "socks5",
         "host": "127.0.0.1",
         "port": 1080,
         "tls": true,
@@ -81,26 +81,51 @@ npm start -- --port 8080 --http --user user1:pass1 --user user2:pass2
         }
       }
     }
-  ]
+  ],
+
+  "debug": false
 }
 ```
 
 ### Configuration Options
 
-| Option | Type | Description |
-|--------|------|-------------|
-| `host` | string | IPv4 address to bind to (default: `0.0.0.0`) |
-| `port` | number | Port to listen on (required) |
-| `tls-key` | string | Path to TLS private key file |
-| `tls-cert` | string | Path to TLS certificate file |
-| `http` | boolean | Enable plain HTTP proxy |
-| `http-tls` | boolean | Enable HTTPS (TLS) proxy |
-| `socks5` | boolean | Enable plain SOCKS5 proxy |
-| `socks5-tls` | boolean | Enable SOCKS5 over TLS |
-| `users` | array | List of allowed users (empty = no authentication) |
-| `rules` | array | Traffic routing rules (evaluated in order, last matching rule wins) |
+| Option       | Type    | Description                                                         |
+|--------------|---------|---------------------------------------------------------------------|
+| `host`       | string  | IPv4 address to bind to (default: `0.0.0.0`)                        |
+| `port`       | number  | Port to listen on (required)                                        |
+| `tls-key`    | string  | Path to TLS private key file                                        |
+| `tls-cert`   | string  | Path to TLS certificate file                                        |
+| `http`       | boolean | Enable plain HTTP proxy                                             |
+| `http-tls`   | boolean | Enable HTTPS (TLS) proxy                                            |
+| `socks5`     | boolean | Enable plain SOCKS5 proxy                                           |
+| `socks5-tls` | boolean | Enable SOCKS5 over TLS                                              |
+| `users`      | array   | List of allowed users (empty = no authentication)                   |
+| `rules`      | array   | Traffic routing rules (evaluated in order, last matching rule wins) |
+| `debug`      | boolean | Enable debug logging (default: `false`)                             |
 
-### Rule Types
+### Rule Structure
+
+Each rule can have:
+- `type` - `"allow"`, `"deny"`, or `"proxy"`
+- `hosts` (optional) - array of address patterns (see below)
+- `ports` (optional) - array of port patterns (see below)
+- `proxy` (required for type `"proxy"`) - upstream proxy configuration
+
+### Address Patterns
+
+- **Single IP**: `"192.168.1.1"`
+- **CIDR Range**: `"10.0.0.0/8"`, `"172.16.0.0/12"`
+- **Exact Domain**: `"example.com"`
+- **Wildcard Domain**: `"*.example.com"` (matches `example.com` and any subdomain)
+
+### Port Patterns
+
+- **Single Port**: `443`
+- **Range**: `"80-88"`
+- **List**: `80,443,8080` (as numbers or strings) – actually use array elements, e.g. `[80, "443-445", 8080]`
+- **All Ports**: `"1-65535"`
+
+### Rule Examples
 
 #### Allow Rule
 Directly connect to the destination without proxying.
@@ -108,8 +133,8 @@ Directly connect to the destination without proxying.
 ```json
 {
   "type": "allow",
-  "address": "example.com",
-  "port": 443
+  "hosts": ["example.com"],
+  "ports": [443]
 }
 ```
 
@@ -119,8 +144,8 @@ Block the connection.
 ```json
 {
   "type": "deny",
-  "address": "192.168.0.0/24",
-  "port": "1-1024"
+  "hosts": ["192.168.0.0/24"],
+  "ports": ["1-1024"]
 }
 ```
 
@@ -130,10 +155,10 @@ Route through an upstream proxy.
 ```json
 {
   "type": "proxy",
-  "address": "*.example.com",
-  "port": "80,443,8080",
+  "hosts": ["*.example.com"],
+  "ports": ["80", "443", "8080"],
   "proxy": {
-    "proto": "http",
+    "protocol": "http",
     "host": "upstream.proxy.com",
     "port": 3128,
     "tls": false,
@@ -145,23 +170,21 @@ Route through an upstream proxy.
 }
 ```
 
-### Address Patterns
+### Upstream Proxy Configuration
 
-- **Single IP**: `192.168.1.1`
-- **CIDR Range**: `10.0.0.0/8`, `172.16.0.0/12`
-- **Exact Domain**: `example.com`
-- **Wildcard Domain**: `*.example.com` (matches `example.com` and any subdomain)
-
-### Port Patterns
-
-- **Single Port**: `443`
-- **Range**: `80-88`
-- **List**: `80,443,8080,8443`
-- **All Ports**: `1-65535`
+| Field      | Type    | Description                                     |
+|------------|---------|-------------------------------------------------|
+| `protocol` | string  | `"socks5"` or `"http"`                          |
+| `host`     | string  | Upstream proxy hostname or IP                   |
+| `port`     | number  | Upstream proxy port                             |
+| `tls`      | boolean | Enable TLS to upstream proxy (default: `false`) |
+| `auth`     | object  | Optional username/password authentication       |
 
 ### Default Behavior
 
 If no rule matches a connection, it is **allowed** by default. If multiple rules match, the **last matching rule** in the configuration file determines the action.
+
+The server also automatically blocks connections to private IPv4/IPv6 addresses and internal domains.
 
 ## Architecture
 

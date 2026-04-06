@@ -24,16 +24,16 @@
     "rules": [
         {
             "type": "allow",
-            "address": "8.8.8.8",
-            "port": 53
+            "hosts": ["8.8.8.8"],
+            "ports": [53]
         },
         {
             "type": "proxy",
-            "address": "12.34.56.78/24",
-            "port": "1-65535",
+            "hosts": ["12.34.56.78/24"],
+            "ports": ["1-65535"],
 
             "proxy": {
-                "proto": "socks5",
+                "protocol": "socks5",
                 "host": "127.0.0.1",
                 "port": 1080,
                 "tls": true,

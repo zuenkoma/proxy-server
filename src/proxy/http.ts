@@ -1,7 +1,7 @@
 import type { Socket } from 'node:net';
-import type { User } from '../users.ts';
+import type { User } from '../user.ts';
 
-export default function connectHttpProxy(socket: Socket, host: string, port: number, auth?: User) {
+export default function connectHttpProxy(socket: Socket, host: string, port: number, auth?: User): Promise<void> {
     return new Promise<void>((resolve, reject) => {
         let response = Buffer.alloc(0);
         function dataHandler(chunk: Buffer) {

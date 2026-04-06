@@ -1,7 +1,7 @@
 {
   "name": "proxy-server",
   "description": "A multi-protocol proxy server with SOCKS5, HTTP, and TLS support, featuring rule-based routing and upstream proxy chaining",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -17,7 +17,7 @@
     "binary-rw": "github:zuenkoma/binary-rw"
   },
   "devDependencies": {
-    "@types/node": "^25.5.1",
-    "typescript": "^5.9.3"
+    "@types/node": "^25.5.2",
+    "typescript": "^6.0.2"
   }
 }

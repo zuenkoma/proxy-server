@@ -1,9 +1,9 @@
 import { BinaryWriter } from 'binary-rw';
 import { isIPv4, isIPv6, type Socket } from 'node:net';
-import type { User } from '../users.ts';
+import type { User } from '../user.ts';
 import { readBytes } from '../utils.ts';
 
-export default async function connectSocks5Proxy(socket: Socket, host: string, port: number, auth?: User) {
+export default async function connectSocks5Proxy(socket: Socket, host: string, port: number, auth?: User): Promise<void> {
     const method = auth ? 0x02 : 0x00;
 
     // Handshake
@@ -57,7 +57,7 @@ export default async function connectSocks5Proxy(socket: Socket, host: string, p
             const ipWriter = new BinaryWriter();
             ipWriter.writeUint8(0x04); // Type
             for (const group of groups) {
-                ipWriter.writeUint32(parseInt(group, 16));
+                ipWriter.writeUint16(parseInt(group, 16));
             }
             addressBuf = ipWriter.toBuffer() as ArrayBuffer;
         }
