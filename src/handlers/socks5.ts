@@ -21,7 +21,7 @@ function createConnectReply(status: number) {
     ]);
 }
 
-export default async function handlerSocks5(socket: Socket, dns: DNS, config: Config) {
+export default async function handlerSocks5(socket: Socket, dns: DNS, config: Config): Promise<void> {
     // Handshake
     {
         const reader1 = await readBytes(socket, 2);
@@ -46,7 +46,10 @@ export default async function handlerSocks5(socket: Socket, dns: DNS, config: Co
             0x05, // Version
             loginMethod // Method
         ]));
-        if (loginMethod === 0xFF) return socket.end();
+        if (loginMethod === 0xFF) {
+            socket.end();
+            return;
+        }
     }
 
     // Auth
@@ -65,10 +68,11 @@ export default async function handlerSocks5(socket: Socket, dns: DNS, config: Co
         const password = reader3.readString(passwordLen);
 
         if (!hasAccess(config.users, username, password)) {
-            return socket.end(new Uint8Array([
+            socket.end(new Uint8Array([
                 0x01, // Auth version
                 0x01 // Failure
             ]));
+            return;
         }
 
         socket.write(new Uint8Array([
@@ -82,7 +86,10 @@ export default async function handlerSocks5(socket: Socket, dns: DNS, config: Co
         const reader1 = await readBytes(socket, 4);
 
         const version = reader1.readUint8();
-        if (version !== 0x05) return socket.destroy();
+        if (version !== 0x05) {
+            socket.destroy();
+            return;
+        }
 
         const command = reader1.readUint8();
         if (command < 0x01 || command > 0x03) throw new Error('Request: unsupported command');
@@ -127,7 +134,8 @@ export default async function handlerSocks5(socket: Socket, dns: DNS, config: Co
 
         // Support TCP connection only (0x01)
         if (command !== 0x01) {
-            return socket.end(createConnectReply(0x07));
+            socket.end(createConnectReply(0x07));
+            return;
         }
 
         const rule = await matchRule(config.rules, host, port, dns);
