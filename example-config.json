@@ -13,7 +13,8 @@
     "users": [
         {
             "username": "user1",
-            "password": "pass1"
+            "password": "pass1",
+            "max-ips": 5
         },
         {
             "username": "user2",

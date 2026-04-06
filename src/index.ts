@@ -23,9 +23,9 @@ catch (error) {
 
 const dns = new DNS(60_000);
 
-const connections = new Set<Socket>();
+const connections = new Map<Socket, string | null>();
 const server = createServer(async socket => {
-    connections.add(socket);
+    connections.set(socket, null);
     socket.once('close', () => connections.delete(socket));
     socket.once('error', error => {
         if (config.debug) logError('Connection error: ' + error.message);
@@ -39,17 +39,17 @@ const server = createServer(async socket => {
 
         switch (firstByte) {
             case 0x05:
-                if (config.socks5) await handlerSocks5(socket, dns, config);
+                if (config.socks5) await handlerSocks5(socket, dns, config, connections);
                 else socket.destroy();
                 break;
 
             case 0x43:
-                if (config.http) await handlerHttp(socket, dns, config);
+                if (config.http) await handlerHttp(socket, dns, config, connections);
                 else socket.destroy();
                 break;
 
             case 0x16:
-                if (config['http-tls'] || config['socks5-tls']) await handlerTls(socket, dns, config);
+                if (config['http-tls'] || config['socks5-tls']) await handlerTls(socket, dns, config, connections);
                 else socket.destroy();
                 break;
 
@@ -70,7 +70,8 @@ function shutdown() {
     logInfo('Shutting down...');
 
     server.close();
-    for (const socket of connections) socket.end();
+    for (const [socket] of connections) socket.end();
+    process.exit(0);
 }
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);

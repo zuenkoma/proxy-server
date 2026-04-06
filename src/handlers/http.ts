@@ -6,7 +6,7 @@ import type { Host } from '../host.ts';
 import { logInfo } from '../logger.ts';
 import connectProxy from '../proxy/index.ts';
 import { matchRule } from '../rule.ts';
-import { hasAccess } from '../user.ts';
+import { findUser } from '../user.ts';
 import { isValidDomain, isValidPort } from '../utils.ts';
 
 interface HttpHeader {
@@ -100,7 +100,7 @@ function readHttpHeader(socket: Socket): Promise<HttpHeader> {
     });
 }
 
-export default async function handlerHttp(socket: Socket, dns: DNS, config: Config): Promise<void> {
+export default async function handlerHttp(socket: Socket, dns: DNS, config: Config, connections: Map<Socket, string | null>): Promise<void> {
     let host: Host, port: number, headers: Record<string, string>;
     try {
         ({ host, port, headers } = await readHttpHeader(socket));
@@ -129,10 +129,26 @@ export default async function handlerHttp(socket: Socket, dns: DNS, config: Conf
         const decoded = atob(credentials);
         const [username, password] = decoded.split(':');
 
-        if (!hasAccess(config.users, username, password)) {
+        const user = findUser(config.users, username, password);
+        if (!user) {
             socket.write('HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm="Proxy"\r\n\r\n');
             socket.end();
             return;
+        }
+
+        if (user !== true && user.maxIps !== null) {
+            connections.set(socket, username);
+
+            const connectedIps = new Set<string>();
+            for (const [socket, connUsername] of connections) {
+                if (connUsername) connectedIps.add(socket.remoteAddress!);
+            }
+
+            if (connectedIps.size > user.maxIps) {
+                socket.write('HTTP/1.1 429 Too Many Requests\r\n\r\n');
+                socket.end();
+                return;
+            }
         }
     }
 

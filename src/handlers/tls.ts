@@ -8,7 +8,7 @@ import handlerHttp from './http.ts';
 import handlerSocks5 from './socks5.ts';
 
 const secureContexts = new WeakMap<Config, SecureContext>();
-export default async function handlerTls(socket: Socket, dns: DNS, config: Config): Promise<void> {
+export default async function handlerTls(socket: Socket, dns: DNS, config: Config, connections: Map<Socket, string | null>): Promise<void> {
     if (!secureContexts.has(config)) {
         const [key, cert] = await Promise.all([
             readFile(config['tls-key']!),
@@ -27,12 +27,12 @@ export default async function handlerTls(socket: Socket, dns: DNS, config: Confi
 
     switch (firstByte) {
         case 0x05:
-            if (config['socks5-tls']) await handlerSocks5(tlsSocket, dns, config);
+            if (config['socks5-tls']) await handlerSocks5(tlsSocket, dns, config, connections);
             else tlsSocket.destroy();
             break;
 
         case 0x43:
-            if (config['http-tls']) await handlerHttp(tlsSocket, dns, config);
+            if (config['http-tls']) await handlerHttp(tlsSocket, dns, config, connections);
             else tlsSocket.destroy();
             break;
 

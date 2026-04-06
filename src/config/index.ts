@@ -175,7 +175,8 @@ export async function readConfig(): Promise<Config> {
             }
             config.users.push({
                 username: parts[0],
-                password: parts[1]
+                password: parts[1],
+                maxIps: null
             });
         }
     }

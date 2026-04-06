@@ -20,6 +20,16 @@ export function parseUsers(users: unknown): User[] {
             throw new ConfigError(`users[${index}].password`, 'must be a non-empty string');
         }
 
-        return user;
+        if ('max-ips' in user) {
+            if (!Number.isInteger(user['max-ips']) || user['max-ips'] < 0) {
+                throw new ConfigError(`users[${index}].max-ips`, 'must be a non-negative number');
+            }
+        }
+
+        return {
+            username: user.username,
+            password: user.password,
+            maxIps: user['max-ips'] ?? null
+        };
     });
 }

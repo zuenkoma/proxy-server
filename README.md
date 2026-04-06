@@ -56,7 +56,7 @@ npm start -- --port 8080 --http --user user1:pass1 --user user2:pass2
   "socks5-tls": true,
 
   "users": [
-    { "username": "user1", "password": "pass1" },
+    { "username": "user1", "password": "pass1", "max-ips": 2 },
     { "username": "user2", "password": "pass2" }
   ],
 
@@ -89,19 +89,21 @@ npm start -- --port 8080 --http --user user1:pass1 --user user2:pass2
 
 ### Configuration Options
 
-| Option       | Type    | Description                                                         |
-|--------------|---------|---------------------------------------------------------------------|
-| `host`       | string  | IPv4 address to bind to (default: `0.0.0.0`)                        |
-| `port`       | number  | Port to listen on (required)                                        |
-| `tls-key`    | string  | Path to TLS private key file                                        |
-| `tls-cert`   | string  | Path to TLS certificate file                                        |
-| `http`       | boolean | Enable plain HTTP proxy                                             |
-| `http-tls`   | boolean | Enable HTTPS (TLS) proxy                                            |
-| `socks5`     | boolean | Enable plain SOCKS5 proxy                                           |
-| `socks5-tls` | boolean | Enable SOCKS5 over TLS                                              |
-| `users`      | array   | List of allowed users (empty = no authentication)                   |
-| `rules`      | array   | Traffic routing rules (evaluated in order, last matching rule wins) |
-| `debug`      | boolean | Enable debug logging (default: `false`)                             |
+| Option       | Type    | Description                                                                                                           |
+|--------------|---------|-----------------------------------------------------------------------------------------------------------------------|
+| `host`       | string  | IPv4 address to bind to (default: `0.0.0.0`)                                                                          |
+| `port`       | number  | Port to listen on (required)                                                                                          |
+| `tls-key`    | string  | Path to TLS private key file                                                                                          |
+| `tls-cert`   | string  | Path to TLS certificate file                                                                                          |
+| `http`       | boolean | Enable plain HTTP proxy                                                                                               |
+| `http-tls`   | boolean | Enable HTTPS (TLS) proxy                                                                                              |
+| `socks5`     | boolean | Enable plain SOCKS5 proxy                                                                                             |
+| `socks5-tls` | boolean | Enable SOCKS5 over TLS                                                                                                |
+| `users`      | array   | List of allowed users (empty = no authentication). Each user can have `username`, `password`, and optional `max-ips`. |
+| `rules`      | array   | Traffic routing rules (evaluated in order, last matching rule wins)                                                   |
+| `debug`      | boolean | Enable debug logging (default: `false`)                                                                               |
+
+If `max-ips` is set, the server limits the number of distinct client IP addresses that can be connected using this user account simultaneously. This helps prevent credential sharing across many devices.
 
 ### Rule Structure
 
