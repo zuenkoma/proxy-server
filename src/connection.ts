@@ -1,40 +1,82 @@
-import { createConnection, isIPv4, isIPv6, type Socket } from 'node:net';
-import { domainToUnicode } from 'node:url';
+import { connect as connectTcp, type Socket } from 'node:net';
+import { connect as connectTls } from 'node:tls';
+import { domainToASCII } from 'node:url';
 import type { DNS } from './dns.ts';
 import type { Host } from './host.ts';
-import { logError } from './logger.ts';
 
-function tryConnectSocket(ip: string, port: number, debug: boolean): Promise<Socket> {
+export class ConnectionError extends Error {
+    readonly host: Host;
+    readonly port: number;
+
+    constructor(host: Host, port: number) {
+        super(`Failed to connect to ${host.host}:${port}`);
+        this.host = host;
+        this.port = port;
+    }
+}
+
+function connectIp(signal: AbortSignal, host: Host, ip: string, port: number, secure: boolean): Promise<Socket> {
     return new Promise((resolve, reject) => {
-        const socket = createConnection(port, ip, () => {
-            socket.off('error', reject);
-            if (debug) socket.on('error', logError);
+        function connectHandler() {
+            socket.off('error', errorHandler);
+            signal.removeEventListener('abort', abortHandler);
             resolve(socket);
-        });
-        socket.once('error', reject);
+        }
+        function errorHandler() {
+            signal.removeEventListener('abort', abortHandler);
+            reject(new ConnectionError(host, port));
+        }
+        function abortHandler() {
+            socket.destroy();
+            reject(signal.reason);
+        }
+
+        const socket = secure
+            ? connectTls(port, ip, { servername: host.type === 'domain' ? domainToASCII(host.host) : undefined }, connectHandler)
+            : connectTcp(port, ip, connectHandler);
+        socket.once('error', errorHandler);
+        signal.addEventListener('abort', abortHandler);
     });
 }
 
-export async function connectSocket(host: Host, port: number, dns: DNS, debug: boolean): Promise<Socket> {
-    if (isIPv4(host.host) || isIPv6(host.host)) {
-        try {
-            return await tryConnectSocket(host.host, port, debug);
-        }
-        catch {
-            if (debug) logError(`Failed to connect to ${host.host}:${port}`);
-            throw new Error(`Failed to connect to ${host.host}:${port}`);
-        }
+export async function connect(signal: AbortSignal, host: Host, port: number, secure: boolean, dns: DNS): Promise<Socket> {
+    if (signal.aborted) throw signal.reason;
 
+    if (host.type !== 'domain') {
+        return await connectIp(signal, host, host.host, port, secure);
     }
 
-    const domain = domainToUnicode(host.host);
-    for (const ip of await dns.lookup(domain)) {
-        try {
-            return await tryConnectSocket(ip.address, port, debug);
-        }
-        catch { }
-    }
+    const ips = await dns.lookup(host.host);
+    if (signal.aborted) throw signal.reason;
 
-    if (debug) logError(`Failed to connect to ${domain}:${port}`);
-    throw new Error(`Failed to connect to ${domain}:${port}`);
+    const controllers: AbortController[] = [];
+    function abortHandler() {
+        for (const controller of controllers) {
+            controller.abort(signal.reason);
+        }
+    }
+    signal.addEventListener('abort', abortHandler);
+
+    try {
+        const [socket, winner] = await Promise.any(ips.map(async ip => {
+            const controller = new AbortController();
+            controllers.push(controller);
+            return [
+                await connectIp(controller.signal, host, ip.address, port, secure),
+                controller
+            ] as [Socket, AbortController];
+        }));
+
+        for (const controller of controllers) {
+            if (controller !== winner) controller.abort();
+        }
+        return socket;
+    }
+    catch (error) {
+        if (error instanceof AggregateError) throw new ConnectionError(host, port);
+        throw error;
+    }
+    finally {
+        signal.removeEventListener('abort', abortHandler);
+    }
 }

@@ -1,7 +1,8 @@
 import { BinaryReader } from 'binary-rw';
 import { type Socket } from 'net';
+import { domainToUnicode } from 'url';
 import { type Config } from '../config/index.ts';
-import { connectSocket } from '../connection.ts';
+import { connect } from '../connection.ts';
 import type { DNS } from '../dns.ts';
 import type { Host } from '../host.ts';
 import { logInfo } from '../logger.ts';
@@ -132,7 +133,7 @@ export default async function handlerSocks5(socket: Socket, dns: DNS, config: Co
                 reader2 = await readBytes(socket, domainLen + 2);
                 host = {
                     type: 'domain',
-                    host: reader2.readString(domainLen)
+                    host: domainToUnicode(reader2.readString(domainLen))
                 };
                 break;
             }
@@ -163,7 +164,7 @@ export default async function handlerSocks5(socket: Socket, dns: DNS, config: Co
         switch (rule.type) {
             case 'allow': {
                 try {
-                    targetSocket = await connectSocket(host, port, dns, config.debug);
+                    targetSocket = await connect(new AbortSignal(), host, port, false, dns);
                     break;
                 }
                 catch {

@@ -11,9 +11,9 @@ export type PortPattern = number | [number, number];
 
 export interface Proxy {
     protocol: 'socks5' | 'http';
-    host: string;
+    host: Host;
     port: number;
-    tls?: boolean; // default: false
+    tls: boolean;
     auth?: User;
 }
 

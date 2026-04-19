@@ -1,6 +1,7 @@
 import { isIPv4, isIPv6, type Socket } from 'net';
+import { domainToUnicode } from 'url';
 import type { Config } from '../config/index.ts';
-import { connectSocket } from '../connection.ts';
+import { connect } from '../connection.ts';
 import type { DNS } from '../dns.ts';
 import type { Host } from '../host.ts';
 import { logInfo } from '../logger.ts';
@@ -44,7 +45,7 @@ function readHttpHeader(socket: Socket): Promise<HttpHeader> {
                 let host: Host;
                 if (isIPv4(hostStr)) host = { type: 'ipv4', host: hostStr };
                 else if (isIPv6(hostStr)) host = { type: 'ipv6', host: hostStr };
-                else if (isValidDomain(hostStr)) host = { type: 'domain', host: hostStr };
+                else if (isValidDomain(hostStr)) host = { type: 'domain', host: domainToUnicode(hostStr) };
                 else {
                     reject(new Error('Invalid host'));
                     return;
@@ -159,7 +160,7 @@ export default async function handlerHttp(socket: Socket, dns: DNS, config: Conf
     switch (rule.type) {
         case 'allow':
             try {
-                targetSocket = await connectSocket(host, port, dns, config.debug);
+                targetSocket = await connect(new AbortSignal(), host, port, false, dns);
                 break;
             }
             catch {

@@ -1,5 +1,6 @@
 import { isIPv4, isIPv6 } from 'node:net';
 import { domainToUnicode } from 'node:url';
+import type { Host } from '../../host.ts';
 import type { Proxy } from '../../rule.ts';
 import { isObject, isValidDomain, isValidPort } from '../../utils.ts';
 import { ConfigError } from '../errors.ts';
@@ -13,10 +14,11 @@ export function parseRuleProxy(proxy: any, ruleIndex: number): Proxy {
         throw new ConfigError(`rules[${ruleIndex}].proxy.protocol`, "must be 'socks5' or 'http'");
     }
 
-    let host: string;
+    let host: Host;
     if (typeof proxy.host === 'string') {
-        if (isIPv4(proxy.host) || isIPv6(proxy.host)) host = proxy.host;
-        else if (isValidDomain(proxy.host)) host = domainToUnicode(proxy.host);
+        if (isIPv4(proxy.host)) host = { type: 'ipv4', host: proxy.host };
+        else if (isIPv6(proxy.host)) host = { type: 'ipv6', host: proxy.host };
+        else if (isValidDomain(proxy.host)) host = { type: 'domain', host: domainToUnicode(proxy.host) };
         else throw new ConfigError(`rules[${ruleIndex}].proxy.host`, 'is not a valid host');
     }
     else {
@@ -30,7 +32,8 @@ export function parseRuleProxy(proxy: any, ruleIndex: number): Proxy {
     const parsed: Proxy = {
         protocol: proxy.protocol,
         host,
-        port: proxy.port
+        port: proxy.port,
+        tls: false
     };
 
     if ('tls' in proxy) {
