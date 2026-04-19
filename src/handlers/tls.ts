@@ -8,7 +8,8 @@ import handlerHttp from './http.ts';
 import handlerSocks5 from './socks5.ts';
 
 const secureContexts = new WeakMap<Config, SecureContext>();
-export default async function handlerTls(socket: Socket, dns: DNS, config: Config, connections: Map<Socket, string | null>): Promise<void> {
+export default async function handlerTls(signal: AbortSignal, socket: Socket, dns: DNS, config: Config, connections: Map<Socket, string | null>): Promise<void> {
+    if (signal.aborted) throw signal.reason;
     if (!secureContexts.has(config)) {
         const [key, cert] = await Promise.all([
             readFile(config['tls-key']!),
@@ -22,17 +23,17 @@ export default async function handlerTls(socket: Socket, dns: DNS, config: Confi
         secureContext: secureContexts.get(config)!
     });
 
-    const firstByte = (await readBytes(tlsSocket, 1)).readUint8();
+    const firstByte = (await readBytes(signal, tlsSocket, 1)).readUint8();
     tlsSocket.unshift(new Uint8Array([firstByte]));
 
     switch (firstByte) {
         case 0x05:
-            if (config['socks5-tls']) await handlerSocks5(tlsSocket, dns, config, connections);
+            if (config['socks5-tls']) await handlerSocks5(signal, tlsSocket, dns, config, connections);
             else tlsSocket.destroy();
             break;
 
         case 0x43:
-            if (config['http-tls']) await handlerHttp(tlsSocket, dns, config, connections);
+            if (config['http-tls']) await handlerHttp(signal, tlsSocket, dns, config, connections);
             else tlsSocket.destroy();
             break;
 

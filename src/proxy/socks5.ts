@@ -3,14 +3,16 @@ import { isIPv4, isIPv6, type Socket } from 'node:net';
 import type { User } from '../user.ts';
 import { readBytes } from '../utils.ts';
 
-export default async function connectSocks5Proxy(socket: Socket, host: string, port: number, auth?: User): Promise<void> {
+export default async function connectSocks5Proxy(signal: AbortSignal, socket: Socket, host: string, port: number, auth?: User): Promise<void> {
+    if (signal.aborted) throw signal.reason;
+
     const method = auth ? 0x02 : 0x00;
 
     // Handshake
     {
         socket.write(new Uint8Array([0x05, 0x01, method]));
 
-        const reader = await readBytes(socket, 2);
+        const reader = await readBytes(signal, socket, 2);
         const version = reader.readUint8();
         const chosenMethod = reader.readUint8();
 
@@ -32,7 +34,7 @@ export default async function connectSocks5Proxy(socket: Socket, host: string, p
         writer.writeBuffer(passwordBuf);
         socket.write(new Uint8Array(writer.toBuffer()));
 
-        const reader = await readBytes(socket, 2);
+        const reader = await readBytes(signal, socket, 2);
         const authVersion = reader.readUint8();
         const authStatus = reader.readUint8();
 
@@ -79,7 +81,7 @@ export default async function connectSocks5Proxy(socket: Socket, host: string, p
         writer.writeUint16(port);
         socket.write(new Uint8Array(writer.toBuffer()));
 
-        const reader = await readBytes(socket, 4);
+        const reader = await readBytes(signal, socket, 4);
         const requestVersion = reader.readUint8();
         const requestCommand = reader.readUint8();
         reader.skip(1); // Reserved
@@ -89,11 +91,11 @@ export default async function connectSocks5Proxy(socket: Socket, host: string, p
             throw new Error('SOCKS5 connection failed');
         }
 
-        if (requestAddressType === 0x01) await readBytes(socket, 6);
-        else if (requestAddressType === 0x04) await readBytes(socket, 18);
+        if (requestAddressType === 0x01) await readBytes(signal, socket, 6);
+        else if (requestAddressType === 0x04) await readBytes(signal, socket, 18);
         else {
-            const requestDomainLen = (await readBytes(socket, 1)).readUint8();
-            await readBytes(socket, requestDomainLen + 2);
+            const requestDomainLen = (await readBytes(signal, socket, 1)).readUint8();
+            await readBytes(signal, socket, requestDomainLen + 2);
         }
     }
 }

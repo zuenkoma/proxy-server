@@ -17,15 +17,22 @@ interface HttpHeader {
     headers: Record<string, string>;
 }
 
-function readHttpHeader(socket: Socket): Promise<HttpHeader> {
+function readHttpHeader(signal: AbortSignal, socket: Socket): Promise<HttpHeader> {
+    if (signal.aborted) throw signal.reason;
+
     let buffer = Buffer.alloc(0);
 
     return new Promise((resolve, reject) => {
-        function onData(chunk: Buffer) {
+        function dataHandler(chunk: Buffer) {
             buffer = Buffer.concat([buffer, chunk]);
             const headerEnd = buffer.indexOf('\r\n\r\n');
 
             if (headerEnd !== -1) {
+                socket.off('data', dataHandler);
+                socket.off('error', errorHandler);
+                socket.off('close', errorHandler);
+                signal.removeEventListener('abort', abortHandler);
+
                 const headerPart = buffer.subarray(0, headerEnd);
                 const remaining = buffer.subarray(headerEnd + 4);
                 if (remaining.length) socket.unshift(remaining);
@@ -70,41 +77,35 @@ function readHttpHeader(socket: Socket): Promise<HttpHeader> {
                     }
                 }
 
-                socket.off('data', onData);
-                socket.off('error', onError);
-                socket.off('close', onClose);
-
                 resolve({
                     method: parts[0],
                     host, port, headers
                 });
             }
         }
-
-        function onError(error: Error) {
-            socket.off('data', onData);
-            socket.off('error', onError);
-            socket.off('close', onClose);
+        function errorHandler(error: Error) {
+            socket.off('data', dataHandler);
+            socket.off('close', errorHandler);
+            signal.removeEventListener('abort', abortHandler);
             reject(error);
         }
-
-        function onClose() {
-            socket.off('data', onData);
-            socket.off('error', onError);
-            socket.off('close', onClose);
-            reject(new Error('Socket closed while reading header'));
+        function abortHandler() {
+            reject(signal.reason);
         }
 
-        socket.on('data', onData);
-        socket.on('error', onError);
-        socket.on('close', onClose);
+        socket.on('data', dataHandler);
+        socket.on('error', errorHandler);
+        socket.on('close', errorHandler);
+        signal.addEventListener('abort', abortHandler);
     });
 }
 
-export default async function handlerHttp(socket: Socket, dns: DNS, config: Config, connections: Map<Socket, string | null>): Promise<void> {
+export default async function handlerHttp(signal: AbortSignal, socket: Socket, dns: DNS, config: Config, connections: Map<Socket, string | null>): Promise<void> {
+    if (signal.aborted) throw signal.reason;
+
     let host: Host, port: number, headers: Record<string, string>;
     try {
-        ({ host, port, headers } = await readHttpHeader(socket));
+        ({ host, port, headers } = await readHttpHeader(signal, socket));
     }
     catch {
         socket.write('HTTP/1.1 400 Bad Request\r\n\r\n');
@@ -160,7 +161,7 @@ export default async function handlerHttp(socket: Socket, dns: DNS, config: Conf
     switch (rule.type) {
         case 'allow':
             try {
-                targetSocket = await connect(new AbortSignal(), host, port, false, dns);
+                targetSocket = await connect(signal, host, port, false, dns);
                 break;
             }
             catch {
@@ -176,7 +177,7 @@ export default async function handlerHttp(socket: Socket, dns: DNS, config: Conf
 
         case 'proxy':
             try {
-                targetSocket = await connectProxy(rule.proxy, host.host, port, dns, config.debug);
+                targetSocket = await connectProxy(signal, rule.proxy, host.host, port, dns, config.debug);
                 break;
             }
             catch {

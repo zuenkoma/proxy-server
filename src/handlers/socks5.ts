@@ -22,14 +22,14 @@ function createConnectReply(status: number) {
     ]);
 }
 
-export default async function handlerSocks5(socket: Socket, dns: DNS, config: Config, connections: Map<Socket, string | null>): Promise<void> {
+export default async function handlerSocks5(signal: AbortSignal, socket: Socket, dns: DNS, config: Config, connections: Map<Socket, string | null>): Promise<void> {
     // Handshake
     {
-        const reader1 = await readBytes(socket, 2);
+        const reader1 = await readBytes(signal, socket, 2);
         reader1.skip(1); // Version
 
         const methodCount = reader1.readUint8();
-        const reader2 = await readBytes(socket, methodCount);
+        const reader2 = await readBytes(signal, socket, methodCount);
 
         let loginMethod = 0xFF;
         for (let i = 0; i < methodCount; ++i) {
@@ -55,17 +55,17 @@ export default async function handlerSocks5(socket: Socket, dns: DNS, config: Co
 
     // Auth
     if (config.users.length) {
-        const reader1 = await readBytes(socket, 2);
+        const reader1 = await readBytes(signal, socket, 2);
 
         const authVersion = reader1.readUint8();
         if (authVersion !== 0x01) throw new Error('Auth: invalid auth version');
 
         const usernameLen = reader1.readUint8();
-        const reader2 = await readBytes(socket, usernameLen + 1);
+        const reader2 = await readBytes(signal, socket, usernameLen + 1);
         const username = reader2.readString(usernameLen);
 
         const passwordLen = reader2.readUint8();
-        const reader3 = await readBytes(socket, passwordLen);
+        const reader3 = await readBytes(signal, socket, passwordLen);
         const password = reader3.readString(passwordLen);
 
         const user = findUser(config.users, username, password);
@@ -102,7 +102,7 @@ export default async function handlerSocks5(socket: Socket, dns: DNS, config: Co
 
     // Request
     {
-        const reader1 = await readBytes(socket, 4);
+        const reader1 = await readBytes(signal, socket, 4);
 
         const version = reader1.readUint8();
         if (version !== 0x05) {
@@ -120,7 +120,7 @@ export default async function handlerSocks5(socket: Socket, dns: DNS, config: Co
         let host: Host, reader2: BinaryReader;
         switch (addressType) {
             case 0x01: { // IPv4
-                reader2 = await readBytes(socket, 6);
+                reader2 = await readBytes(signal, socket, 6);
                 host = {
                     type: 'ipv4',
                     host: Array.from({ length: 4 }, () => reader2.readUint8()).join('.')
@@ -128,9 +128,9 @@ export default async function handlerSocks5(socket: Socket, dns: DNS, config: Co
                 break;
             }
             case 0x03: { // Domain
-                const reader1 = await readBytes(socket, 1);
+                const reader1 = await readBytes(signal, socket, 1);
                 const domainLen = reader1.readUint8();
-                reader2 = await readBytes(socket, domainLen + 2);
+                reader2 = await readBytes(signal, socket, domainLen + 2);
                 host = {
                     type: 'domain',
                     host: domainToUnicode(reader2.readString(domainLen))
@@ -138,7 +138,7 @@ export default async function handlerSocks5(socket: Socket, dns: DNS, config: Co
                 break;
             }
             case 0x04: { // IPv6
-                reader2 = await readBytes(socket, 18);
+                reader2 = await readBytes(signal, socket, 18);
                 host = {
                     type: 'ipv6',
                     host: Array.from({ length: 8 }, () => reader2.readUint16().toString(16).padStart(4, '0')).join(':')
@@ -164,7 +164,7 @@ export default async function handlerSocks5(socket: Socket, dns: DNS, config: Co
         switch (rule.type) {
             case 'allow': {
                 try {
-                    targetSocket = await connect(new AbortSignal(), host, port, false, dns);
+                    targetSocket = await connect(signal, host, port, false, dns);
                     break;
                 }
                 catch {
@@ -179,7 +179,7 @@ export default async function handlerSocks5(socket: Socket, dns: DNS, config: Co
 
             case 'proxy': {
                 try {
-                    targetSocket = await connectProxy(rule.proxy, host.host, port, dns, config.debug);
+                    targetSocket = await connectProxy(signal, rule.proxy, host.host, port, dns, config.debug);
                     break;
                 }
                 catch {

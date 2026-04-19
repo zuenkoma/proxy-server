@@ -1,7 +1,8 @@
 import { BinaryReader } from 'binary-rw';
 import { type Socket } from 'net';
 
-export async function readBytes(socket: Socket, length: number): Promise<BinaryReader> {
+export async function readBytes(signal: AbortSignal, socket: Socket, length: number): Promise<BinaryReader> {
+    if (signal.aborted) throw signal.reason;
     return new Promise((resolve, reject) => {
         const buffer = Buffer.allocUnsafe(length);
         let bytesRead = 0;
@@ -15,15 +16,25 @@ export async function readBytes(socket: Socket, length: number): Promise<BinaryR
 
             if (bytesRead === length) {
                 socket.off('readable', dataHandler);
-                socket.off('error', reject);
-                socket.off('close', reject);
+                socket.off('error', errorHandler);
+                socket.off('close', errorHandler);
+                signal.removeEventListener('abort', abortHandler);
                 resolve(new BinaryReader(buffer.buffer, buffer.byteOffset));
             }
         }
+        function errorHandler(error: Error) {
+            signal.removeEventListener('abort', abortHandler);
+            reject(error);
+        }
+        function abortHandler() {
+            socket.destroy();
+            reject(signal.reason);
+        }
 
         socket.on('readable', dataHandler);
-        socket.once('error', reject);
-        socket.once('close', reject);
+        socket.once('error', errorHandler);
+        socket.once('close', errorHandler);
+        signal.addEventListener('abort', abortHandler);
     });
 }
 
