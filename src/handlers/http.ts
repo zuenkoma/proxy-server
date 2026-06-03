@@ -1,5 +1,7 @@
-import { isIPv4, isIPv6, type Socket } from 'net';
-import { domainToUnicode } from 'url';
+import { createServer as createHttpServer, request as httpRequest } from 'node:http';
+import { request as httpsRequest } from 'node:https';
+import { isIPv4, isIPv6, type Socket } from 'node:net';
+import { domainToUnicode } from 'node:url';
 import type { Config } from '../config/index.ts';
 import { connect } from '../connection.ts';
 import type { DNS } from '../dns.ts';
@@ -7,193 +9,243 @@ import type { Host } from '../host.ts';
 import { logInfo } from '../logger.ts';
 import connectProxy from '../proxy/index.ts';
 import { matchRule } from '../rule.ts';
-import { findUser } from '../user.ts';
+import { findUser, handleUserLimit } from '../user.ts';
 import { isValidDomain, isValidPort } from '../utils.ts';
 
-interface HttpHeader {
-    method: string;
-    host: Host;
-    port: number;
-    headers: Record<string, string>;
+const decoder = new TextDecoder('latin1');
+export function checkHttp(buffer: Uint8Array): boolean | null {
+    let line = decoder.decode(buffer.subarray(0, Math.min(buffer.length, 8192)));
+    const method = line.match(/^[-a-z0-9!#$%&'*+.^_`|~]+/i);
+    if (!method) return false;
+    line = line.slice(method[0].length);
+    if (line !== '' && line[0] !== ' ') return false;
+    const url = line.slice(1).match(/[-a-z0-9._~!$&'()*+,;=:@/?%\[\]]*/i);
+    if (!url) return false;
+    line = line.slice(url[0].length + 1).toUpperCase();
+    if (line !== '' && !line.startsWith(' HTTP/1.'.slice(0, line.length))) return false;
+    line = line.slice(8);
+    if (line !== '' && !['0', '1'].includes(line[0])) return false;
+    line = line.slice(1);
+    if (line !== '' && !line.startsWith('\r\n'.slice(0, line.length))) return false;
+    return line === '' ? null : true;
 }
 
-function readHttpHeader(signal: AbortSignal, socket: Socket): Promise<HttpHeader> {
+export async function httpHandler(signal: AbortSignal, socket: Socket, dns: DNS, config: Config, connections: Map<Socket, string[]>): Promise<void> {
     if (signal.aborted) throw signal.reason;
 
-    let buffer = Buffer.alloc(0);
+    const server = createHttpServer(async (request, response) => {
+        let url: URL;
+        try {
+            url = new URL(request.url!);
+            if (!['http:', 'https:'].includes(url.protocol)) throw new Error();
+        }
+        catch {
+            response.writeHead(400).end();
+            return;
+        }
 
-    return new Promise((resolve, reject) => {
-        function dataHandler(chunk: Buffer) {
-            buffer = Buffer.concat([buffer, chunk]);
-            const headerEnd = buffer.indexOf('\r\n\r\n');
+        let username: string | null = null;
+        if (config.users.length) {
+            const authHeader = request.headers['proxy-authorization'];
+            if (!authHeader) {
+                response.writeHead(407, { 'proxy-authenticate': 'Basic realm="Proxy"' }).end();
+                return;
+            }
 
-            if (headerEnd !== -1) {
-                socket.off('data', dataHandler);
-                socket.off('error', errorHandler);
-                socket.off('close', errorHandler);
-                signal.removeEventListener('abort', abortHandler);
+            const [scheme, credentials] = authHeader.split(' ');
+            if (scheme.toLowerCase() !== 'basic') {
+                response.writeHead(400).end();
+                return;
+            }
 
-                const headerPart = buffer.subarray(0, headerEnd);
-                const remaining = buffer.subarray(headerEnd + 4);
-                if (remaining.length) socket.unshift(remaining);
+            let decoded;
+            try {
+                decoded = atob(credentials);
+            }
+            catch {
+                response.writeHead(400).end();
+                return;
+            }
 
-                const lines = headerPart.toString().split('\r\n');
-                const firstLine = lines[0];
-                const parts = firstLine.split(' ');
+            let password;
+            [username, password] = decoded.split(':');
+            const user = findUser(config.users, username, password);
+            if (!user) {
+                response.writeHead(407, { 'proxy-authenticate': 'Basic realm="Proxy"' }).end();
+                return;
+            }
 
-                if (parts.length !== 3 || parts[0] !== 'CONNECT') {
-                    reject(new Error('Invalid request: only CONNECT method supported'));
-                    return;
-                }
-
-                const target = parts[1];
-                const [hostStr, portStr] = target.split(':');
-
-                let host: Host;
-                if (isIPv4(hostStr)) host = { type: 'ipv4', host: hostStr };
-                else if (isIPv6(hostStr)) host = { type: 'ipv6', host: hostStr };
-                else if (isValidDomain(hostStr)) host = { type: 'domain', host: domainToUnicode(hostStr) };
-                else {
-                    reject(new Error('Invalid host'));
-                    return;
-                }
-
-                const port = +portStr;
-                if (!isValidPort(port)) {
-                    reject(new Error('Invalid port'));
-                    return;
-                }
-
-                const headers: Record<string, string> = {};
-                for (let i = 1; i < lines.length; i++) {
-                    const line = lines[i];
-                    if (line === '') continue;
-
-                    const colonIdx = line.indexOf(':');
-                    if (colonIdx !== -1) {
-                        const key = line.substring(0, colonIdx).trim().toLowerCase();
-                        const value = line.substring(colonIdx + 1).trim();
-                        headers[key] = value;
-                    }
-                }
-
-                resolve({
-                    method: parts[0],
-                    host, port, headers
-                });
+            if (user !== true && handleUserLimit(user, socket, connections)) {
+                response.writeHead(429).end();
+                return;
             }
         }
-        function errorHandler(error: Error) {
-            socket.off('data', dataHandler);
-            socket.off('close', errorHandler);
-            signal.removeEventListener('abort', abortHandler);
-            reject(error);
-        }
-        function abortHandler() {
-            reject(signal.reason);
+
+        let host: Host;
+        if (isIPv4(url.hostname)) host = { type: 'ipv4', host: url.hostname };
+        else if (isIPv6(url.hostname)) host = { type: 'ipv6', host: url.hostname };
+        else host = { type: 'domain', host: domainToUnicode(url.hostname) };
+
+        const port = url.port === '' ? url.protocol === 'http:' ? 80 : 443 : +url.port;
+
+        const rule = await matchRule(config.rules, host, port, dns);
+        if (config.debug) logInfo(`Connect to ${host.host}:${port} (${rule.type})`);
+
+        let targetSocket: Socket;
+        switch (rule.type) {
+            case 'allow':
+                try {
+                    targetSocket = await connect(signal, host, port, false, dns);
+                    break;
+                }
+                catch {
+                    response.writeHead(502).end();
+                    return;
+                }
+
+            case 'deny':
+                response.writeHead(403).end();
+                return;
+
+            case 'proxy':
+                try {
+                    targetSocket = await connectProxy(signal, rule.proxy, host.host, port, dns, config.debug);
+                    break;
+                }
+                catch {
+                    response.writeHead(502).end();
+                    return;
+                }
         }
 
-        socket.on('data', dataHandler);
-        socket.on('error', errorHandler);
-        socket.on('close', errorHandler);
-        signal.addEventListener('abort', abortHandler);
+        const headers: Record<string, string[] | undefined> = { ...request.headersDistinct };
+        delete headers.host;
+        delete headers['proxy-authorization'];
+
+        const targetRequest = (url.protocol === 'http:' ? httpRequest : httpsRequest)(url.href, {
+            headers,
+            createConnection: () => targetSocket
+        }, targetResponse => {
+            response.writeHead(targetResponse.statusCode!, targetResponse.headers);
+            targetResponse.pipe(response);
+        });
+
+        if (username !== null) {
+            targetSocket.once('end', () => {
+                const usernames = connections.get(socket)!;
+                usernames.splice(usernames.indexOf(username), 1);
+            });
+        }
+
+        targetSocket.once('error', () => response.end());
+        request.once('error', () => targetSocket.end());
+        response.once('error', () => targetSocket.end());
+
+        request.pipe(targetRequest);
     });
-}
 
-export default async function handlerHttp(signal: AbortSignal, socket: Socket, dns: DNS, config: Config, connections: Map<Socket, string | null>): Promise<void> {
-    if (signal.aborted) throw signal.reason;
+    server.on('connect', async (request, httpSocket, head) => {
+        const [hostStr, portStr] = request.url!.split(':');
 
-    let host: Host, port: number, headers: Record<string, string>;
-    try {
-        ({ host, port, headers } = await readHttpHeader(signal, socket));
-    }
-    catch {
-        socket.write('HTTP/1.1 400 Bad Request\r\n\r\n');
-        socket.end();
-        return;
-    }
-
-    if (config.users.length) {
-        const authHeader = headers['proxy-authorization'];
-        if (!authHeader) {
-            socket.write('HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm="Proxy"\r\n\r\n');
-            socket.end();
+        let host: Host;
+        if (isIPv4(hostStr)) host = { type: 'ipv4', host: hostStr };
+        else if (isIPv6(hostStr)) host = { type: 'ipv6', host: hostStr };
+        else if (isValidDomain(hostStr)) host = { type: 'domain', host: domainToUnicode(hostStr) };
+        else {
+            httpSocket.write('HTTP/1.1 400 Bad Request\r\n\r\n');
+            httpSocket.end();
             return;
         }
 
-        const [scheme, credentials] = authHeader.split(' ');
-        if (scheme.toLowerCase() !== 'basic') {
-            socket.write('HTTP/1.1 400 Bad Request\r\n\r\n');
-            socket.end();
+        const port = +portStr;
+        if (!isValidPort(port)) {
+            httpSocket.write('HTTP/1.1 400 Bad Request\r\n\r\n');
+            httpSocket.end();
             return;
         }
 
-        const decoded = atob(credentials);
-        const [username, password] = decoded.split(':');
-
-        const user = findUser(config.users, username, password);
-        if (!user) {
-            socket.write('HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm="Proxy"\r\n\r\n');
-            socket.end();
-            return;
-        }
-
-        if (user !== true && user.maxIps !== null) {
-            connections.set(socket, username);
-
-            const connectedIps = new Set<string>();
-            for (const [socket, connUsername] of connections) {
-                if (connUsername) connectedIps.add(socket.remoteAddress!);
-            }
-
-            if (connectedIps.size > user.maxIps) {
-                socket.write('HTTP/1.1 429 Too Many Requests\r\n\r\n');
-                socket.end();
+        if (config.users.length) {
+            const authHeader = request.headers['proxy-authorization'];
+            if (!authHeader) {
+                httpSocket.write('HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm="Proxy"\r\n\r\n');
+                httpSocket.end();
                 return;
             }
-        }
-    }
 
-    const rule = await matchRule(config.rules, host, port, dns);
-    if (config.debug) logInfo(`Connect to ${host.host}:${port} (${rule.type})`);
+            const [scheme, credentials] = authHeader.split(' ');
+            if (scheme.toLowerCase() !== 'basic') {
+                httpSocket.write('HTTP/1.1 400 Bad Request\r\n\r\n');
+                httpSocket.end();
+                return;
+            }
 
-    let targetSocket: Socket;
-    switch (rule.type) {
-        case 'allow':
+            let decoded;
             try {
-                targetSocket = await connect(signal, host, port, false, dns);
-                break;
+                decoded = atob(credentials);
             }
             catch {
-                socket.write('HTTP/1.1 502 Bad Gateway\r\n\r\n');
-                socket.end();
+                httpSocket.write('HTTP/1.1 400 Bad Request\r\n\r\n');
+                httpSocket.end();
                 return;
             }
 
-        case 'deny':
-            socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
-            socket.end();
-            return;
-
-        case 'proxy':
-            try {
-                targetSocket = await connectProxy(signal, rule.proxy, host.host, port, dns, config.debug);
-                break;
-            }
-            catch {
-                socket.write('HTTP/1.1 502 Bad Gateway\r\n\r\n');
-                socket.end();
+            const [username, password] = decoded.split(':');
+            const user = findUser(config.users, username, password);
+            if (!user) {
+                httpSocket.write('HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm="Proxy"\r\n\r\n');
+                httpSocket.end();
                 return;
             }
-    }
 
-    socket.write('HTTP/1.1 200 Connection established\r\n\r\n');
+            if (user !== true && handleUserLimit(user, socket, connections)) {
+                httpSocket.write('HTTP/1.1 429 Too Many Requests\r\n\r\n');
+                httpSocket.end();
+            }
+        }
 
-    targetSocket.once('error', () => socket.destroy());
-    targetSocket.once('end', () => socket.end());
-    socket.once('error', () => targetSocket.destroy());
-    socket.once('end', () => targetSocket.end());
+        const rule = await matchRule(config.rules, host, port, dns);
+        if (config.debug) logInfo(`Connect to ${host.host}:${port} (${rule.type})`);
 
-    socket.pipe(targetSocket);
-    targetSocket.pipe(socket);
+        let targetSocket: Socket;
+        switch (rule.type) {
+            case 'allow':
+                try {
+                    targetSocket = await connect(signal, host, port, false, dns);
+                    break;
+                }
+                catch {
+                    httpSocket.write('HTTP/1.1 502 Bad Gateway\r\n\r\n');
+                    httpSocket.end();
+                    return;
+                }
+
+            case 'deny':
+                httpSocket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
+                httpSocket.end();
+                return;
+
+            case 'proxy':
+                try {
+                    targetSocket = await connectProxy(signal, rule.proxy, host.host, port, dns, config.debug);
+                    break;
+                }
+                catch {
+                    httpSocket.write('HTTP/1.1 502 Bad Gateway\r\n\r\n');
+                    httpSocket.end();
+                    return;
+                }
+        }
+
+        targetSocket.once('error', () => httpSocket.destroy());
+        httpSocket.once('error', () => targetSocket.destroy());
+
+        httpSocket.write('HTTP/1.1 200 Connection established\r\n\r\n');
+        httpSocket.write(head);
+
+        httpSocket.pipe(targetSocket);
+        targetSocket.pipe(httpSocket);
+
+    });
+
+    server.emit('connection', socket);
 }

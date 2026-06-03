@@ -1,13 +1,49 @@
 import { BinaryReader } from 'binary-rw';
 import { type Socket } from 'net';
 
+export function rejectOnSocketError(signal: AbortSignal, socket: Socket, reject: (error: Error) => void): () => void {
+    let rejected = false;
+
+    function cleanup(): void {
+        socket.off('error', errorHandler);
+        socket.off('close', closeHandler);
+        signal.removeEventListener('abort', abortHandler);
+    }
+
+    function errorHandler(error: Error): void {
+        if (rejected) return;
+        rejected = true;
+        cleanup();
+        reject(error);
+    }
+    function closeHandler(): void {
+        errorHandler(new Error('Socket closed'));
+    }
+    function abortHandler(): void {
+        socket.destroy();
+        errorHandler(signal.reason);
+    }
+
+    socket.on('error', errorHandler);
+    socket.on('close', closeHandler);
+    signal.addEventListener('abort', abortHandler);
+
+    return cleanup;
+}
+
 export async function readBytes(signal: AbortSignal, socket: Socket, length: number): Promise<BinaryReader> {
     if (signal.aborted) throw signal.reason;
     return new Promise((resolve, reject) => {
         const buffer = Buffer.allocUnsafe(length);
         let bytesRead = 0;
 
-        function dataHandler() {
+        const cleanup = rejectOnSocketError(signal, socket, (error: Error) => {
+            socket.off('readable', dataHandler);
+            reject(error);
+        });
+        socket.on('readable', dataHandler);
+
+        function dataHandler(): void {
             const chunk: Buffer | null = socket.read(length - bytesRead);
             if (!chunk) return;
 
@@ -16,25 +52,10 @@ export async function readBytes(signal: AbortSignal, socket: Socket, length: num
 
             if (bytesRead === length) {
                 socket.off('readable', dataHandler);
-                socket.off('error', errorHandler);
-                socket.off('close', errorHandler);
-                signal.removeEventListener('abort', abortHandler);
+                cleanup();
                 resolve(new BinaryReader(buffer.buffer, buffer.byteOffset));
             }
         }
-        function errorHandler(error: Error) {
-            signal.removeEventListener('abort', abortHandler);
-            reject(error);
-        }
-        function abortHandler() {
-            socket.destroy();
-            reject(signal.reason);
-        }
-
-        socket.on('readable', dataHandler);
-        socket.once('error', errorHandler);
-        socket.once('close', errorHandler);
-        signal.addEventListener('abort', abortHandler);
     });
 }
 

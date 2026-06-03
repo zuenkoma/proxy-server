@@ -3,11 +3,8 @@ import process from 'node:process';
 import { CliError, ConfigError } from './config/errors.ts';
 import { readConfig, type Config } from './config/index.ts';
 import { DNS } from './dns.ts';
-import handlerHttp from './handlers/http.ts';
-import handlerSocks5 from './handlers/socks5.ts';
-import handlerTls from './handlers/tls.ts';
+import handleProtocol from './handlers/index.ts';
 import { logError, logInfo } from './logger.ts';
-import { readBytes } from './utils.ts';
 
 let config: Config;
 try {
@@ -23,9 +20,9 @@ catch (error) {
 
 const dns = new DNS(60_000);
 
-const connections = new Map<Socket, string | null>();
+const connections = new Map<Socket, string[]>();
 const server = createServer(async socket => {
-    connections.set(socket, null);
+    connections.set(socket, []);
 
     const controller = new AbortController();
     socket.once('close', () => {
@@ -39,31 +36,13 @@ const server = createServer(async socket => {
     if (config.debug) logInfo(`Connection from ${socket.remoteAddress}:${socket.remotePort}`);
 
     try {
-        const firstByte = (await readBytes(controller.signal, socket, 1)).readUint8();
-        socket.unshift(new Uint8Array([firstByte]));
-
-        switch (firstByte) {
-            case 0x05:
-                if (config.socks5) await handlerSocks5(controller.signal, socket, dns, config, connections);
-                else socket.destroy();
-                break;
-
-            case 0x43:
-                if (config.http) await handlerHttp(controller.signal, socket, dns, config, connections);
-                else socket.destroy();
-                break;
-
-            case 0x16:
-                if (config['http-tls'] || config['socks5-tls']) await handlerTls(controller.signal, socket, dns, config, connections);
-                else socket.destroy();
-                break;
-
-            default:
-                socket.destroy();
-                break;
+        await handleProtocol(controller.signal, socket, dns, config, connections);
+    }
+    catch (error) {
+        if (!(error instanceof DOMException) || error.name !== 'AbortError') {
+            socket.destroy();
         }
     }
-    catch { }
 });
 server.listen(config.port, config.host);
 

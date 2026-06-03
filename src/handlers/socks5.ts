@@ -8,8 +8,12 @@ import type { Host } from '../host.ts';
 import { logInfo } from '../logger.ts';
 import connectProxy from '../proxy/index.ts';
 import { matchRule } from '../rule.ts';
-import { findUser } from '../user.ts';
+import { findUser, handleUserLimit } from '../user.ts';
 import { readBytes } from '../utils.ts';
+
+export function checkSocks5(buffer: Uint8Array): boolean | null {
+    return buffer[0] === 0x05;
+}
 
 function createConnectReply(status: number) {
     return new Uint8Array([
@@ -22,7 +26,7 @@ function createConnectReply(status: number) {
     ]);
 }
 
-export default async function handlerSocks5(signal: AbortSignal, socket: Socket, dns: DNS, config: Config, connections: Map<Socket, string | null>): Promise<void> {
+export async function socks5Handler(signal: AbortSignal, socket: Socket, dns: DNS, config: Config, connections: Map<Socket, string[]>): Promise<void> {
     // Handshake
     {
         const reader1 = await readBytes(signal, socket, 2);
@@ -77,21 +81,12 @@ export default async function handlerSocks5(signal: AbortSignal, socket: Socket,
             return;
         }
 
-        if (user !== true && user.maxIps !== null) {
-            connections.set(socket, username);
-
-            const connectedIps = new Set<string>();
-            for (const [socket, connUsername] of connections) {
-                if (connUsername) connectedIps.add(socket.remoteAddress!);
-            }
-
-            if (connectedIps.size > user.maxIps) {
-                socket.end(new Uint8Array([
-                    0x01, // Auth version
-                    0xFF // Failure
-                ]));
-                return;
-            }
+        if (user !== true && handleUserLimit(user, socket, connections)) {
+            socket.end(new Uint8Array([
+                0x01, // Auth version
+                0xFF // Failure
+            ]));
+            return;
         }
 
         socket.write(new Uint8Array([
@@ -191,10 +186,8 @@ export default async function handlerSocks5(signal: AbortSignal, socket: Socket,
 
         socket.write(createConnectReply(0x00));
 
-        targetSocket.once('error', () => socket.destroy());
-        targetSocket.once('end', () => socket.end());
         socket.once('error', () => targetSocket.destroy());
-        socket.once('end', () => targetSocket.end());
+        targetSocket.once('error', () => socket.destroy());
 
         socket.pipe(targetSocket);
         targetSocket.pipe(socket);

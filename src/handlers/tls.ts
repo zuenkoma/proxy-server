@@ -3,13 +3,20 @@ import type { Socket } from 'node:net';
 import { TLSSocket, createSecureContext, type SecureContext } from 'node:tls';
 import { type Config } from '../config/index.ts';
 import type { DNS } from '../dns.ts';
-import { readBytes } from '../utils.ts';
-import handlerHttp from './http.ts';
-import handlerSocks5 from './socks5.ts';
+import handleProtocol from './index.ts';
+
+export function checkTls(buffer: Uint8Array): boolean | null {
+    return buffer[0] === 0x16;
+}
 
 const secureContexts = new WeakMap<Config, SecureContext>();
-export default async function handlerTls(signal: AbortSignal, socket: Socket, dns: DNS, config: Config, connections: Map<Socket, string | null>): Promise<void> {
+export async function tlsHandler(signal: AbortSignal, socket: Socket, dns: DNS, config: Config, connections: Map<Socket, string[]>, inTls = false): Promise<void> {
     if (signal.aborted) throw signal.reason;
+    if (inTls) {
+        socket.destroy();
+        return;
+    }
+
     if (!secureContexts.has(config)) {
         const [key, cert] = await Promise.all([
             readFile(config['tls-key']!),
@@ -22,23 +29,5 @@ export default async function handlerTls(signal: AbortSignal, socket: Socket, dn
         isServer: true,
         secureContext: secureContexts.get(config)!
     });
-
-    const firstByte = (await readBytes(signal, tlsSocket, 1)).readUint8();
-    tlsSocket.unshift(new Uint8Array([firstByte]));
-
-    switch (firstByte) {
-        case 0x05:
-            if (config['socks5-tls']) await handlerSocks5(signal, tlsSocket, dns, config, connections);
-            else tlsSocket.destroy();
-            break;
-
-        case 0x43:
-            if (config['http-tls']) await handlerHttp(signal, tlsSocket, dns, config, connections);
-            else tlsSocket.destroy();
-            break;
-
-        default:
-            tlsSocket.destroy();
-            break;
-    }
+    await handleProtocol(signal, tlsSocket, dns, config, connections, true);
 }
