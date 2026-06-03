@@ -25,22 +25,27 @@ function detectProtocol(buffer: Uint8Array): typeof handleProtocol | false | nul
 
 export default async function handleProtocol(signal: AbortSignal, socket: Socket, dns: DNS, config: Config, connections: Map<Socket, string[]>, inTls = false): Promise<void> {
     if (signal.aborted) throw signal.reason;
+
     return new Promise((resolve, reject) => {
         let buffer = Buffer.alloc(0);
 
         const cleanup = rejectOnSocketError(signal, socket, (error: Error) => {
-            socket.off('data', dataHandler);
+            socket.off('readable', dataHandler);
             reject(error);
         });
-        socket.on('data', dataHandler);
+        socket.on('readable', dataHandler);
 
-        function dataHandler(data: Buffer) {
-            buffer = Buffer.concat([buffer, data]);
+        function dataHandler() {
+            const chunk: Buffer | null = socket.read();
+            if (chunk === null) return reject(new Error('Failed to detect protocol'));
+            buffer = Buffer.concat([buffer, chunk]);
+
             const handler = detectProtocol(buffer);
             if (handler !== null) {
-                socket.off('data', dataHandler);
+                socket.off('readable', dataHandler);
                 cleanup();
                 socket.unshift(buffer);
+
                 if (handler) resolve(handler(signal, socket, dns, config, connections, inTls));
                 else reject(new Error('Failed to detect protocol'));
             }
