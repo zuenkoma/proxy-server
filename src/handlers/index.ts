@@ -7,13 +7,12 @@ import { checkHttp, httpHandler } from './http.ts';
 import { checkSocks5, socks5Handler } from './socks5.ts';
 import { checkTls, tlsHandler } from './tls.ts';
 
-const protocols: [(buffer: Uint8Array) => boolean | null, typeof handleProtocol][] = [
-    [checkTls, tlsHandler],
-    [checkSocks5, socks5Handler],
-    [checkHttp, httpHandler]
-];
+function detectProtocol(buffer: Uint8Array, inTls: boolean, config: Config): typeof handleProtocol | false | null {
+    const protocols: [(buffer: Uint8Array) => boolean | null, typeof handleProtocol][] = [];
+    if (!inTls && (config['socks5-tls'] || config['http-tls'])) protocols.push([checkTls, tlsHandler]);
+    if (config.socks5) protocols.push([checkSocks5, socks5Handler]);
+    if (config.http) protocols.push([checkHttp, httpHandler]);
 
-function detectProtocol(buffer: Uint8Array): typeof handleProtocol | false | null {
     let found = false;
     for (const [checkProtocol, handler] of protocols) {
         const result = checkProtocol(buffer);
@@ -40,7 +39,7 @@ export default async function handleProtocol(signal: AbortSignal, socket: Socket
             if (chunk === null) return reject(new Error('Failed to detect protocol'));
             buffer = Buffer.concat([buffer, chunk]);
 
-            const handler = detectProtocol(buffer);
+            const handler = detectProtocol(buffer, inTls, config);
             if (handler !== null) {
                 socket.off('readable', dataHandler);
                 cleanup();

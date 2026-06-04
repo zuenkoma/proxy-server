@@ -10,12 +10,8 @@ export function checkTls(buffer: Uint8Array): boolean | null {
 }
 
 const secureContexts = new WeakMap<Config, SecureContext>();
-export async function tlsHandler(signal: AbortSignal, socket: Socket, dns: DNS, config: Config, connections: Map<Socket, string[]>, inTls = false): Promise<void> {
+export async function tlsHandler(signal: AbortSignal, socket: Socket, dns: DNS, config: Config, connections: Map<Socket, string[]>): Promise<void> {
     if (signal.aborted) throw signal.reason;
-    if (inTls) {
-        socket.destroy();
-        return;
-    }
 
     if (!secureContexts.has(config)) {
         const [key, cert] = await Promise.all([
