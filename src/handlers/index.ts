@@ -9,9 +9,15 @@ import { checkTls, tlsHandler } from './tls.ts';
 
 function detectProtocol(buffer: Uint8Array, inTls: boolean, config: Config): typeof handleProtocol | false | null {
     const protocols: [(buffer: Uint8Array) => boolean | null, typeof handleProtocol][] = [];
-    if (!inTls && (config['socks5-tls'] || config['http-tls'])) protocols.push([checkTls, tlsHandler]);
-    if (config.socks5) protocols.push([checkSocks5, socks5Handler]);
-    if (config.http) protocols.push([checkHttp, httpHandler]);
+    if (inTls) {
+        if (config['socks5-tls']) protocols.push([checkSocks5, socks5Handler]);
+        if (config['http-tls']) protocols.push([checkHttp, httpHandler]);
+    }
+    else {
+        if (config['socks5-tls'] || config['http-tls']) protocols.push([checkTls, tlsHandler]);
+        if (config.socks5) protocols.push([checkSocks5, socks5Handler]);
+        if (config.http) protocols.push([checkHttp, httpHandler]);
+    }
 
     let found = false;
     for (const [checkProtocol, handler] of protocols) {
