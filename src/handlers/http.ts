@@ -121,8 +121,10 @@ export async function httpHandler(signal: AbortSignal, socket: Socket, dns: DNS,
         const headers: Record<string, string[] | undefined> = { ...request.headersDistinct };
         delete headers.host;
         delete headers['proxy-authorization'];
+        delete headers['proxy-connection'];
 
         const targetRequest = (url.protocol === 'http:' ? httpRequest : httpsRequest)(url.href, {
+            method: request.method,
             headers,
             createConnection: () => targetSocket
         }, targetResponse => {
