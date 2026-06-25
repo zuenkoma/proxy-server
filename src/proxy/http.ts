@@ -10,12 +10,12 @@ export default function connectHttpProxy(signal: AbortSignal, socket: Socket, ho
 
             const headerEnd = response.indexOf('\r\n\r\n');
             if (headerEnd > -1) {
-                const remaining = response.subarray(headerEnd + 4);
-                if (remaining.length) socket.unshift(remaining);
-
                 socket.off('data', dataHandler);
                 socket.off('error', errorHandler);
                 signal.removeEventListener('abort', abortHandler);
+
+                const remaining = response.subarray(headerEnd + 4);
+                if (remaining.length) socket.unshift(remaining);
 
                 const statusLine = response.toString().split('\r\n')[0];
                 const statusMatch = statusLine.match(/HTTP\/\d\.\d\s+(\d+)/);
