@@ -51,16 +51,16 @@ export function parseRuleHosts(hosts: unknown, ruleIndex: number): HostPattern[]
 
         if (host.startsWith('.')) {
             if (isValidDomain(host.slice(1))) {
-                return new RegExp(`^([^.]+\\.)+${RegExp.escape(host.slice(1))}$`, 'i');
+                return new RegExp(`^([^.]+\\.)+${RegExp.escape(domainToUnicode(host.slice(1)))}$`, 'i');
             }
         }
         else if (host.startsWith('*.')) {
             if (isValidDomain(host.slice(2))) {
-                return new RegExp(`^([^.]+\\.)*${RegExp.escape(host.slice(2))}$`, 'i');
+                return new RegExp(`^([^.]+\\.)*${RegExp.escape(domainToUnicode(host.slice(2)))}$`, 'i');
             }
         }
         else if (isValidDomain(host)) {
-            return new RegExp(`^${domainToUnicode(RegExp.escape(host))}$`, 'i');
+            return new RegExp(`^${RegExp.escape(domainToUnicode(host))}$`, 'i');
         }
 
         throw new ConfigError(`proxy[${ruleIndex}].hosts[${index}]`, 'is not a valid host');
