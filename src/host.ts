@@ -6,13 +6,13 @@ export interface Host {
 }
 
 export function ipv4ToNumber(ip: string): number {
-    const octets = ip.split('.').map(Number);
+    const octets = ip.split('.').map(Number) as [number, number, number, number];
     return (octets[0] << 24 | octets[1] << 16 | octets[2] << 8 | octets[3]) >>> 0;
 }
 
 export function ipv6ToBigint(ip: string): bigint {
     ip = ip.replace(/\d+\.\d+\.\d+\.\d+/, ipv4 => {
-        const octets = ipv4.split('.').map(Number);
+        const octets = ipv4.split('.').map(Number) as [number, number, number, number];
         return `${(octets[0] << 8 | octets[1]).toString(16)}:${(octets[2] << 8 | octets[3]).toString(16)}`;
     });
     return BigInt(

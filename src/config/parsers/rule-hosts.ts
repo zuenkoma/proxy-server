@@ -8,14 +8,14 @@ import { ConfigError } from '../errors.ts';
 function isIPv4CIDR(cidr: string): boolean {
     const parts = cidr.split('/');
     if (parts.length !== 2) return false;
-    const [ip, mask] = parts;
+    const [ip, mask] = parts as [string, string];
     return isIPv4(ip) && Number.isInteger(+mask) && +mask >= 0 && +mask <= 32;
 }
 
 function isIPv6CIDR(cidr: string): boolean {
     const parts = cidr.split('/');
     if (parts.length !== 2) return false;
-    const [ip, mask] = parts;
+    const [ip, mask] = parts as [string, string];
     return isIPv6(ip) && Number.isInteger(+mask) && +mask >= 0 && +mask <= 128;
 }
 
@@ -33,7 +33,7 @@ export function parseRuleHosts(hosts: unknown, ruleIndex: number): HostPattern[]
 
         if (isIPv4(host)) return ipv4ToNumber(host);
         if (isIPv4CIDR(host)) {
-            const [ip, maskBits] = host.split('/');
+            const [ip, maskBits] = host.split('/') as [string, string];
             return {
                 host: ipv4ToNumber(ip),
                 mask: ((0xFFFFFFFF << (32 - +maskBits)) >>> 0)
@@ -42,7 +42,7 @@ export function parseRuleHosts(hosts: unknown, ruleIndex: number): HostPattern[]
 
         if (isIPv6(host)) return ipv6ToBigint(host);
         if (isIPv6CIDR(host)) {
-            const [ip, maskBits] = host.split('/');
+            const [ip, maskBits] = host.split('/') as [string, string];
             return {
                 host: ipv6ToBigint(ip),
                 mask: ((0xFFFFFFFF << (32 - +maskBits)) >>> 0)

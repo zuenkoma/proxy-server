@@ -17,10 +17,15 @@ export default function connectHttpProxy(signal: AbortSignal, socket: Socket, ho
                 const remaining = response.subarray(headerEnd + 4);
                 if (remaining.length) socket.unshift(remaining);
 
-                const statusLine = response.toString().split('\r\n')[0];
+                const statusLine = response.toString().split('\r\n')[0]!;
                 const statusMatch = statusLine.match(/HTTP\/\d\.\d\s+(\d+)/);
-                const statusCode = statusMatch ? +statusMatch[1] : 0;
 
+                if (!statusMatch) {
+                    reject(new Error(`Failed to parse proxy response: ${statusLine}`));
+                    return;
+                }
+
+                const statusCode = statusMatch ? +statusMatch[1]! : 0;
                 if (statusCode === 200) resolve();
                 else reject(new Error(`Proxy connection failed with status ${statusCode}`));
             }

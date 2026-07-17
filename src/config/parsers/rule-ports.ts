@@ -19,7 +19,7 @@ export function parseRulePorts(ports: unknown, ruleIndex: number): PortPattern[]
 
             case 'string':
                 if (/^\d+-\d+$/.test(port)) {
-                    const [start, end] = port.split('-').map(Number);
+                    const [start, end] = port.split('-').map(Number) as [number, number];
                     if (!isValidPort(start) || !isValidPort(end)) {
                         throw new ConfigError(`rules[${ruleIndex}].ports[${index}]`, 'must be a number between 1 and 65535');
                     }

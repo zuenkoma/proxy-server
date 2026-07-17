@@ -24,7 +24,7 @@ export function checkHttp(buffer: Uint8Array): boolean | null {
     line = line.slice(url[0].length + 1).toUpperCase();
     if (line !== '' && !line.startsWith(' HTTP/1.'.slice(0, line.length))) return false;
     line = line.slice(8);
-    if (line !== '' && !['0', '1'].includes(line[0])) return false;
+    if (line !== '' && !['0', '1'].includes(line[0]!)) return false;
     line = line.slice(1);
     if (line !== '' && !line.startsWith('\r\n'.slice(0, line.length))) return false;
     return line === '' ? null : true;
@@ -52,23 +52,29 @@ export async function httpHandler(signal: AbortSignal, socket: Socket, dns: DNS,
                 return;
             }
 
-            const [scheme, credentials] = authHeader.split(' ');
-            if (scheme.toLowerCase() !== 'basic') {
+            const [scheme, encodedCredentials] = authHeader.split(' ');
+            if (!scheme || !encodedCredentials || scheme.toLowerCase() !== 'basic') {
                 response.writeHead(400).end();
                 return;
             }
 
             let decoded;
             try {
-                decoded = atob(credentials);
+                decoded = atob(encodedCredentials);
             }
             catch {
                 response.writeHead(400).end();
                 return;
             }
 
+            const credentials = decoded.split(':');
+            if (credentials.length !== 2) {
+                response.writeHead(400).end();
+                return;
+            }
+
             let password;
-            [username, password] = decoded.split(':');
+            [username, password] = credentials as [string, string];
             const user = findUser(config.users, username, password);
             if (!user) {
                 response.writeHead(407, { 'proxy-authenticate': 'Basic realm="Proxy"' }).end();
@@ -150,21 +156,21 @@ export async function httpHandler(signal: AbortSignal, socket: Socket, dns: DNS,
         const [hostStr, portStr] = request.url!.split(':');
 
         let host: Host;
-        if (isIPv4(hostStr)) host = { type: 'ipv4', host: hostStr };
-        else if (isIPv6(hostStr)) host = { type: 'ipv6', host: hostStr };
-        else if (isValidDomain(hostStr)) host = { type: 'domain', host: domainToUnicode(hostStr) };
+        if (isIPv4(hostStr!)) host = { type: 'ipv4', host: hostStr! };
+        else if (isIPv6(hostStr!)) host = { type: 'ipv6', host: hostStr! };
+        else if (isValidDomain(hostStr!)) host = { type: 'domain', host: domainToUnicode(hostStr!) };
         else {
             httpSocket.write('HTTP/1.1 400 Bad Request\r\n\r\n');
             httpSocket.end();
             return;
         }
 
-        const port = +portStr;
-        if (!isValidPort(port)) {
+        if (portStr === undefined || !isValidPort(+portStr)) {
             httpSocket.write('HTTP/1.1 400 Bad Request\r\n\r\n');
             httpSocket.end();
             return;
         }
+        const port = +portStr;
 
         if (config.users.length) {
             const authHeader = request.headers['proxy-authorization'];
@@ -174,8 +180,8 @@ export async function httpHandler(signal: AbortSignal, socket: Socket, dns: DNS,
                 return;
             }
 
-            const [scheme, credentials] = authHeader.split(' ');
-            if (scheme.toLowerCase() !== 'basic') {
+            const [scheme, encodedCredentials] = authHeader.split(' ');
+            if (!scheme || !encodedCredentials || scheme.toLowerCase() !== 'basic') {
                 httpSocket.write('HTTP/1.1 400 Bad Request\r\n\r\n');
                 httpSocket.end();
                 return;
@@ -183,7 +189,7 @@ export async function httpHandler(signal: AbortSignal, socket: Socket, dns: DNS,
 
             let decoded;
             try {
-                decoded = atob(credentials);
+                decoded = atob(encodedCredentials);
             }
             catch {
                 httpSocket.write('HTTP/1.1 400 Bad Request\r\n\r\n');
@@ -191,7 +197,14 @@ export async function httpHandler(signal: AbortSignal, socket: Socket, dns: DNS,
                 return;
             }
 
-            const [username, password] = decoded.split(':');
+            const credentials = decoded.split(':');
+            if (credentials.length !== 2) {
+                httpSocket.write('HTTP/1.1 400 Bad Request\r\n\r\n');
+                httpSocket.end();
+                return;
+            }
+
+            const [username, password] = credentials as [string, string];
             const user = findUser(config.users, username, password);
             if (!user) {
                 httpSocket.write('HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm="Proxy"\r\n\r\n');

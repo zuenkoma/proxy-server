@@ -170,12 +170,12 @@ export async function readConfig(): Promise<Config> {
             if (parts.length !== 2) {
                 throw new CliError(`Option '--user, -u' must be 'username:password'`);
             }
-            if (!parts[0].length || !parts[1].length) {
+            if (!parts[0]!.length || !parts[1]!.length) {
                 throw new CliError(`Option '--user, -u' is invalid. Username and password cannot be empty`);
             }
             config.users.push({
-                username: parts[0],
-                password: parts[1],
+                username: parts[0]!,
+                password: parts[1]!,
                 maxIps: null
             });
         }
