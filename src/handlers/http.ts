@@ -146,6 +146,7 @@ export async function httpHandler(signal: AbortSignal, socket: Socket, dns: DNS,
         }
 
         targetSocket.once('error', () => response.end());
+        targetRequest.once('error', () => response.end());
         request.once('error', () => targetSocket.end());
         response.once('error', () => targetSocket.end());
 
