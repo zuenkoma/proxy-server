@@ -1,37 +1,38 @@
+import { request as httpRequest } from 'node:http';
 import type { Socket } from 'node:net';
 import type { User } from '../user.ts';
 
 export default function connectHttpProxy(signal: AbortSignal, socket: Socket, host: string, port: number, auth?: User): Promise<void> {
     if (signal.aborted) throw signal.reason;
+
     return new Promise((resolve, reject) => {
-        let response = Buffer.alloc(0);
-        function dataHandler(chunk: Buffer) {
-            response = Buffer.concat([response, chunk]);
-
-            const headerEnd = response.indexOf('\r\n\r\n');
-            if (headerEnd > -1) {
-                socket.off('data', dataHandler);
-                socket.off('error', errorHandler);
-                signal.removeEventListener('abort', abortHandler);
-
-                const remaining = response.subarray(headerEnd + 4);
-                if (remaining.length) socket.unshift(remaining);
-
-                const statusLine = response.toString().split('\r\n')[0]!;
-                const statusMatch = statusLine.match(/HTTP\/\d\.\d\s+(\d+)/);
-
-                if (!statusMatch) {
-                    reject(new Error(`Failed to parse proxy response: ${statusLine}`));
-                    return;
+        const hostPort = `${host}:${port}`;
+        const request = httpRequest({
+            createConnection: () => socket,
+            method: 'CONNECT',
+            path: hostPort,
+            headers: {
+                Host: hostPort,
+                ...auth && {
+                    'Proxy-Authorization': 'Basic ' + btoa(`${auth.username}:${auth.password}`)
                 }
-
-                const statusCode = statusMatch ? +statusMatch[1]! : 0;
-                if (statusCode === 200) resolve();
-                else reject(new Error(`Proxy connection failed with status ${statusCode}`));
             }
-        }
+        }, response => {
+            if (response.statusCode !== 200) {
+                request.off('error', errorHandler);
+                signal.removeEventListener('abort', abortHandler);
+                reject(new Error(`Proxy connection failed with status ${response.statusCode}`));
+            }
+        });
+
+        request.on('connect', (_response, socket, head) => {
+            request.off('error', errorHandler);
+            signal.removeEventListener('abort', abortHandler);
+            socket.unshift(head);
+            resolve();
+        });
+
         function errorHandler(error: Error) {
-            socket.off('data', dataHandler);
             signal.removeEventListener('abort', abortHandler);
             reject(error);
         }
@@ -40,10 +41,9 @@ export default function connectHttpProxy(signal: AbortSignal, socket: Socket, ho
             reject(signal.reason);
         }
 
-        socket.on('data', dataHandler);
-        socket.once('error', errorHandler);
+        request.once('error', errorHandler);
         signal.addEventListener('abort', abortHandler);
 
-        socket.write(`CONNECT ${host}:${port} HTTP/1.1\r\nHost: ${host}:${port}${auth ? `\r\nProxy-Authorization: Basic ${btoa(`${auth.username}:${auth.password}`)}` : ''}\r\n\r\n`);
+        request.end();
     });
 }
