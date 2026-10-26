@@ -2,11 +2,16 @@ import type { DNS } from './dns.ts';
 import { ipv4ToNumber, ipv6ToBigint, type Host } from './host.ts';
 import type { User } from './user.ts';
 
-export interface CIDRPattern {
-    host: number | bigint;
+export interface IPv4CIDRPattern {
+    host: number;
     mask: number;
 }
-export type HostPattern = number | bigint | CIDRPattern | RegExp;
+export interface IPv6CIDRPattern {
+    host: bigint;
+    mask: bigint;
+}
+
+export type HostPattern = number | bigint | IPv4CIDRPattern | IPv6CIDRPattern | RegExp;
 export type PortPattern = number | [number, number];
 
 export interface Proxy {
@@ -41,8 +46,8 @@ function matchHost(host: number | bigint | string, pattern: HostPattern): boolea
     if (typeof pattern === 'object') {
         return typeof host === typeof pattern.host && pattern.host === (
             typeof pattern.host === 'number' ?
-                ((host as number) & pattern.mask) >>> 0 :
-                (host as bigint) & BigInt(pattern.mask)
+                ((host as number) & (pattern.mask as number)) >>> 0 :
+                (host as bigint) & (pattern.mask as bigint)
         );
     }
 

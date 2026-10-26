@@ -34,19 +34,15 @@ export function parseRuleHosts(hosts: unknown, ruleIndex: number): HostPattern[]
         if (isIPv4(host)) return ipv4ToNumber(host);
         if (isIPv4CIDR(host)) {
             const [ip, maskBits] = host.split('/') as [string, string];
-            return {
-                host: ipv4ToNumber(ip),
-                mask: ((0xFFFFFFFF << (32 - +maskBits)) >>> 0)
-            };
+            const mask = ((-1 << 32 - +maskBits) & -(+maskBits > 0)) >>> 0;
+            return { host: (ipv4ToNumber(ip) & mask) >>> 0, mask };
         }
 
         if (isIPv6(host)) return ipv6ToBigint(host);
         if (isIPv6CIDR(host)) {
             const [ip, maskBits] = host.split('/') as [string, string];
-            return {
-                host: ipv6ToBigint(ip),
-                mask: ((0xFFFFFFFF << (32 - +maskBits)) >>> 0)
-            };
+            const mask = (1n << BigInt(maskBits)) - 1n << 128n - BigInt(maskBits);
+            return { host: ipv6ToBigint(ip) & mask, mask };
         }
 
         if (host.startsWith('.')) {
