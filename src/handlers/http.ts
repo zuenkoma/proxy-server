@@ -14,7 +14,7 @@ import { isValidDomain, isValidPort } from '../utils.ts';
 
 const decoder = new TextDecoder('latin1');
 export function checkHttp(buffer: Uint8Array): boolean | null {
-    let line = decoder.decode(buffer.subarray(0, Math.min(buffer.length, 8192)));
+    let line = decoder.decode(buffer);
     const method = line.match(/^[-a-z0-9!#$%&'*+.^_`|~]+/i);
     if (!method) return false;
     line = line.slice(method[0].length);
