@@ -27,7 +27,7 @@ export function checkHttp(buffer: Uint8Array): boolean | null {
     if (line !== '' && !['0', '1'].includes(line[0]!)) return false;
     line = line.slice(1);
     if (line !== '' && !line.startsWith('\r\n'.slice(0, line.length))) return false;
-    return line === '' ? null : true;
+    return line.startsWith('\r\n') ? true : null;
 }
 
 export async function httpHandler(signal: AbortSignal, socket: Socket, dns: DNS, config: Config, connections: Map<Socket, string[]>): Promise<void> {
@@ -125,16 +125,29 @@ export async function httpHandler(signal: AbortSignal, socket: Socket, dns: DNS,
         }
 
         const headers: Record<string, string[] | undefined> = { ...request.headersDistinct };
-        delete headers.host;
-        delete headers['proxy-authorization'];
-        delete headers['proxy-connection'];
+        for (const value of request.headersDistinct.connection ?? []) {
+            for (const token of value.split(',')) {
+                const name = token.trim().toLowerCase();
+                if (name) delete headers[name];
+            }
+        }
+        for (const header of ['connection', 'host', 'keep-alive', 'proxy-authorization', 'proxy-connection', 'te', 'trailer', 'transfer-encoding', 'upgrade']) {
+            delete headers[header];
+        }
 
         const targetRequest = (url.protocol === 'http:' ? httpRequest : httpsRequest)(url.href, {
             method: request.method,
             headers,
             createConnection: () => targetSocket
         }, targetResponse => {
-            response.writeHead(targetResponse.statusCode!, targetResponse.headers);
+            try {
+                response.writeHead(targetResponse.statusCode!, targetResponse.headers);
+            }
+            catch {
+                targetSocket.destroy();
+                response.writeHead(502).end();
+                return;
+            }
             targetResponse.pipe(response);
         });
 
