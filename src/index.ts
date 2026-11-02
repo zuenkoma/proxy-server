@@ -55,6 +55,7 @@ function shutdown() {
 
     server.close();
     for (const [socket] of connections) socket.end();
+    dns.destroy();
     process.exit(0);
 }
 process.on('SIGINT', shutdown);
