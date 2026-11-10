@@ -1,5 +1,5 @@
 import { connect as connectTcp, type Socket } from 'node:net';
-import { connect as connectTls } from 'node:tls';
+import { connect as connectTls, type ConnectionOptions } from 'node:tls';
 import { domainToASCII } from 'node:url';
 import type { DNS } from './dns.ts';
 import type { Host } from './host.ts';
@@ -32,8 +32,18 @@ function connectIp(signal: AbortSignal, host: Host, ip: string, port: number, se
         }
 
         const socket = secure
-            ? connectTls(port, ip, { servername: host.type === 'domain' ? domainToASCII(host.host) : undefined }, connectHandler)
-            : connectTcp(port, ip, connectHandler);
+            ? connectTls({
+                host: ip,
+                port,
+                servername: host.type === 'domain' ? domainToASCII(host.host) : undefined,
+                allowHalfOpen: true
+            } as ConnectionOptions & { allowHalfOpen?: boolean; }, connectHandler)
+            : connectTcp({
+                host: ip,
+                port,
+                allowHalfOpen: true
+            }, connectHandler);
+
         socket.once('error', errorHandler);
         signal.addEventListener('abort', abortHandler);
     });

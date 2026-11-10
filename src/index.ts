@@ -21,8 +21,11 @@ catch (error) {
 const dns = new DNS(60_000);
 
 const connections = new Map<Socket, string[]>();
-const server = createServer(async socket => {
+const server = createServer({ allowHalfOpen: true }, async socket => {
     connections.set(socket, []);
+
+    socket.setKeepAlive(true, config.socketTimeout);
+    socket.once('end', () => socket.setTimeout(config.socketTimeout, () => socket.destroy()));
 
     const controller = new AbortController();
     socket.once('close', () => {
@@ -54,7 +57,7 @@ function shutdown() {
     logInfo('Shutting down...');
 
     server.close();
-    for (const [socket] of connections) socket.end();
+    for (const [socket] of connections) socket.destroy();
     dns.destroy();
     process.exit(0);
 }

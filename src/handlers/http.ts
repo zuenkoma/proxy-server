@@ -95,6 +95,7 @@ export async function httpHandler(signal: AbortSignal, socket: Socket, dns: DNS,
         const port = url.port === '' ? url.protocol === 'http:' ? 80 : 443 : +url.port;
 
         const rule = await matchRule(config.rules, host, port, dns);
+        if (response.destroyed) return;
         if (config.debug) logInfo(`Connect to ${host.host}:${port} (${rule.type})`);
 
         let targetSocket: Socket;
@@ -122,6 +123,11 @@ export async function httpHandler(signal: AbortSignal, socket: Socket, dns: DNS,
                     response.writeHead(502).end();
                     return;
                 }
+        }
+
+        if (response.destroyed) {
+            targetSocket.destroy();
+            return;
         }
 
         const headers: Record<string, string[] | undefined> = { ...request.headersDistinct };
@@ -229,10 +235,12 @@ export async function httpHandler(signal: AbortSignal, socket: Socket, dns: DNS,
             if (user !== true && handleUserLimit(user, socket, connections)) {
                 httpSocket.write('HTTP/1.1 429 Too Many Requests\r\n\r\n');
                 httpSocket.end();
+                return;
             }
         }
 
         const rule = await matchRule(config.rules, host, port, dns);
+        if (httpSocket.destroyed) return;
         if (config.debug) logInfo(`Connect to ${host.host}:${port} (${rule.type})`);
 
         let targetSocket: Socket;
@@ -264,6 +272,17 @@ export async function httpHandler(signal: AbortSignal, socket: Socket, dns: DNS,
                     return;
                 }
         }
+
+        if (httpSocket.destroyed) {
+            targetSocket.destroy();
+            return;
+        }
+
+        targetSocket.setKeepAlive(true, config.socketTimeout);
+        targetSocket.once('end', () => targetSocket.setTimeout(config.socketTimeout, () => targetSocket.destroy()));
+
+        httpSocket.once('close', () => targetSocket.destroySoon());
+        targetSocket.once('close', () => socket.destroySoon());
 
         targetSocket.once('error', () => httpSocket.destroy());
         httpSocket.once('error', () => targetSocket.destroy());

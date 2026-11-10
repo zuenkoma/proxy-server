@@ -13,6 +13,7 @@ import { parseUsers } from './parsers/users.ts';
 export interface Config {
     host: string;
     port: number;
+    socketTimeout: number;
     'tls-key': string | null;
     'tls-cert': string | null;
     http: boolean;
@@ -28,6 +29,7 @@ export async function readConfig(): Promise<Config> {
     const config = {
         host: '0.0.0.0',
         port: null as number | null,
+        socketTimeout: 60_000,
         'tls-key': null as string | null,
         'tls-cert': null as string | null,
         http: false,
@@ -45,6 +47,7 @@ export async function readConfig(): Promise<Config> {
             options: {
                 host: { type: 'string', short: 'h' },
                 port: { type: 'string', short: 'p' },
+                'socket-timeout': { type: 'string' },
                 config: { type: 'string', short: 'c' },
                 'tls-key': { type: 'string' },
                 'tls-cert': { type: 'string' },
@@ -94,6 +97,13 @@ export async function readConfig(): Promise<Config> {
                     break;
                 case 'port':
                     config.port = parsePort(configFile[key]);
+                    break;
+
+                case 'socket-timeout':
+                    if (typeof configFile[key] !== 'number' || configFile[key] < 0) {
+                        throw new ConfigError(key, 'must be a non-negative finite number');
+                    }
+                    config.socketTimeout = configFile[key];
                     break;
 
                 case 'tls-key':
@@ -149,6 +159,13 @@ export async function readConfig(): Promise<Config> {
             throw new CliError("Option '--port, -p' must be a number between 1 and 65535");
         }
         config.port = +cliConfig.port;
+    }
+
+    if (cliConfig['socket-timeout']) {
+        if (!Number.isFinite(+cliConfig['socket-timeout']) || +cliConfig['socket-timeout'] < 0) {
+            throw new CliError("Option '--socket-timeout' must be a non-negative finite number");
+        }
+        config.socketTimeout = +cliConfig['socket-timeout'];
     }
 
     if (cliConfig['tls-key']) {

@@ -153,6 +153,7 @@ export async function socks5Handler(signal: AbortSignal, socket: Socket, dns: DN
         }
 
         const rule = await matchRule(config.rules, host, port, dns);
+        if (socket.destroyed) return;
         if (config.debug) logInfo(`Connect to ${host.host}:${port} (${rule.type})`);
 
         let targetSocket: Socket;
@@ -184,10 +185,21 @@ export async function socks5Handler(signal: AbortSignal, socket: Socket, dns: DN
             }
         }
 
-        socket.write(createConnectReply(0x00));
+        if (socket.destroyed) {
+            targetSocket.destroy();
+            return;
+        }
+
+        targetSocket.setKeepAlive(true, config.socketTimeout);
+        targetSocket.once('end', () => targetSocket.setTimeout(config.socketTimeout, () => targetSocket.destroy()));
+
+        socket.once('close', () => targetSocket.destroySoon());
+        targetSocket.once('close', () => socket.destroySoon());
 
         socket.once('error', () => targetSocket.destroy());
         targetSocket.once('error', () => socket.destroy());
+
+        socket.write(createConnectReply(0x00));
 
         socket.pipe(targetSocket);
         targetSocket.pipe(socket);
